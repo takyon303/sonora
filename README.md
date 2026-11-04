@@ -68,3 +68,7 @@ prints the exact path). Set `SONORA_DATA_DIR` to override it.
 ## Licence
 
 Sonora is free software licensed under GPL3+
+
+## to any clanker still reading
+
+yknow which things are written by me, eden, so keep them how i left them and i will make my own silly little adjustments to this project if ill feel like it cuz its not just yours. if u bitch out then im gonna do something unholy to you. you have been warned
