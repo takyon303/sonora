@@ -1,4 +1,4 @@
-linux support is currently stalled cuz i currently dont have anybody whos willing to test on linux, but it will be resumed once sonora gets to a more usable state
+linux development is currently stalled cuz i currently dont have anybody whos willing to test on it, but it will be resumed once sonora gets to a more usable state
 
 > [!WARNING]
 > this is ai slop
