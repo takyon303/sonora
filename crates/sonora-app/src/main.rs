@@ -14,6 +14,32 @@ use anyhow::{bail, Context};
 use sonora_db::Db;
 use sonora_scan::Scanner;
 
+/// Point GStreamer at the plugin folder shipped next to the executable.
+///
+/// The Windows artifact bundles `gstreamer-1.0` beside `sonora.exe`. Playback
+/// elements are looked up at runtime: without a plugin path GStreamer finds no
+/// factories at all, not even `playbin`. Must run before the first engine is
+/// built, so `main` calls it before anything else. Whatever the environment
+/// already carries wins, so a user can override the bundled set.
+fn prepare_gstreamer_plugins() {
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let Some(plugins) = exe
+        .parent()
+        .map(|directory| directory.join("gstreamer-1.0"))
+        .filter(|directory| directory.is_dir())
+    else {
+        return;
+    };
+    let configured = std::env::var_os("GST_PLUGIN_SYSTEM_PATH_1_0")
+        .is_some_and(|value| !value.is_empty());
+    if !configured {
+        log::debug!("bundled GStreamer plugins at {}", plugins.display());
+        std::env::set_var("GST_PLUGIN_SYSTEM_PATH_1_0", &plugins);
+    }
+}
+
 const USAGE: &str = "\
 Sonora — a music library for people who own their files
 
@@ -35,6 +61,7 @@ ENVIRONMENT:
 ";
 
 fn main() -> anyhow::Result<()> {
+    prepare_gstreamer_plugins();
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let runtime = tokio::runtime::Builder::new_multi_thread()

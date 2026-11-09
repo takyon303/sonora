@@ -360,7 +360,8 @@ impl Db {
 
     // --------------------------------------------------------------- playlists
 
-    /// Every playlist, alphabetically, with how many tracks each holds right now.
+    /// Every playlist, with the hand-built ones first, then alphabetically,
+    /// showing how many tracks each holds right now.
     ///
     /// A smart playlist's count is whatever its rules currently select, so the
     /// number on the Playlists page follows the library without a rescan of the
@@ -369,7 +370,7 @@ impl Db {
         let rows = sqlx::query(
             "SELECT p.id, p.name, p.rules
              FROM playlists p
-             ORDER BY p.name COLLATE NOCASE, p.id",
+             ORDER BY (p.rules IS NULL) DESC, p.name COLLATE NOCASE, p.id",
         )
         .fetch_all(&self.pool)
         .await
@@ -2157,6 +2158,23 @@ mod tests {
             .map(|track| track.id)
             .collect();
         assert_eq!(order, vec![first, second]);
+    }
+
+    /// The Playlists page lists hand-built lists above smart ones, because a
+    /// curated list is the thing the reader came for.
+    #[tokio::test]
+    async fn hand_built_playlists_sort_above_smart_ones() {
+        let db = Db::open_in_memory().await.unwrap();
+
+        let summaries = {
+            db.create_playlist("Zebra").await.unwrap();
+            db.create_smart_playlist("Alpha", &PlaylistRules::default())
+                .await
+                .unwrap();
+            db.playlists().await.unwrap()
+        };
+        let names: Vec<String> = summaries.into_iter().map(|summary| summary.name).collect();
+        assert_eq!(names, vec!["Zebra".to_string(), "Alpha".to_string()]);
     }
 
     #[tokio::test]

@@ -16,4 +16,5 @@ The Figma nodes use white fills. Invisible frame fills are omitted. Path
 coordinates are decoded from the file's geometry blobs; they are not traced
 from the thumbnail. `play.svg`, `lyrics.svg` and `search.svg` are simple vector
 companions for real controls whose corresponding states are absent from the
-supplied frames. The original branding SVG is preserved separately.
+supplied frames. `queue.svg` follows the same stroke style for the queue
+toggle. The original branding SVG is preserved separately.

@@ -231,12 +231,9 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
                 Ok::<_, sonora_core::Error>(tracks)
             })?;
             remember_tracks(&lookup, &tracks);
-            let has_current = saved.current().is_some();
+            // Restoring stays on the library view; the section property only
+            // ever names pages that actually exist in the shell.
             engine.restore_from_snapshot(saved.snapshot());
-            if has_current {
-                ui.set_section("player".into());
-                lock(&lookup).section = "player".to_string();
-            }
         }
     }
     ui.set_playback_available(engine.is_some());
@@ -1338,6 +1335,11 @@ fn attach_playback(
         let engine = engine.clone();
         ui.on_volume_changed(move |volume| {
             engine.set_volume(f64::from(volume));
+            // The mute button gave way to the lyrics toggle, so dragging the
+            // volume is the single remaining way to unmute.
+            if engine.muted() {
+                engine.set_muted(false);
+            }
         });
     }
 
@@ -1363,10 +1365,6 @@ fn attach_playback(
         });
     }
 
-    {
-        let engine = engine.clone();
-        ui.on_mute_toggled(move || engine.set_muted(!engine.muted()));
-    }
     {
         let engine = engine.clone();
         ui.on_shuffle_toggled(move || engine.set_shuffle(!engine.shuffle()));

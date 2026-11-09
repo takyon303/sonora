@@ -1325,7 +1325,7 @@ component SidebarPlayer inherits Rectangle {
     in property <string> position-label: "0:00";
     in property <string> duration-label: "0:00";
     in-out property <float> volume: 1;
-    in property <bool> muted: false;
+    in property <bool> lyrics-open: false;
     in property <bool> shuffle: false;
     in property <int> repeat: 0;
     callback open-player();
@@ -1335,7 +1335,7 @@ component SidebarPlayer inherits Rectangle {
     callback seek(int);
     callback seeking(bool);
     callback volume-changed(float);
-    callback mute();
+    callback lyrics-toggle();
     callback shuffle-toggle();
     callback repeat-toggle();
     height: 446px * root.scale;
@@ -1493,18 +1493,21 @@ component SidebarPlayer inherits Rectangle {
             }
 
             IconButton {
-                icon: @image-url("../../../assets/design/volume.svg");
-                label: root.muted ? "Unmute" : "Mute";
-                active: root.muted;
+                icon: @image-url("../../../assets/design/lyrics.svg");
+                label: "Lyrics";
+                active: root.lyrics-open;
                 width: 44px * root.scale;
                 height: 44px * root.scale;
-                clicked => { root.mute(); }
+                clicked => { root.lyrics-toggle(); }
             }
         }
 
         Slider {
             x: 12px * root.scale;
-            y: 56px * root.scale;
+            // The icon row above ends at 64px, and the slider's touch area is
+            // drawn on top of it; higher and it would swallow clicks on the
+            // bottom edge of the buttons.
+            y: 64px * root.scale;
             width: parent.width - 24px * root.scale;
             height: 24px * root.scale;
             value <=> root.volume;
@@ -2190,7 +2193,6 @@ export component AppWindow inherits Window {
     callback queue-remove(int);
     callback save-settings(string, int, int, string, int, string, string, string, string, bool, string, int);
     callback cache-action(bool);
-    callback mute-toggled();
     callback shuffle-toggled();
     callback repeat-toggled();
     callback pick-settings-folder(string);
@@ -2404,15 +2406,11 @@ export component AppWindow inherits Window {
             }
 
             IconButton {
-                icon: @image-url("../../../assets/design/lyrics.svg");
-                label: "Lyrics";
-                active: root.lyrics-open;
-                clicked => { root.lyrics-toggle(); }
-            }
-
-            ActionButton {
+                icon: @image-url("../../../assets/design/queue.svg");
                 label: "Queue";
-                primary: false;
+                active: root.queue-open;
+                // The row is 36px tall; the icon button otherwise draws 44px.
+                height: 36px;
                 clicked => { root.queue-open = !root.queue-open; if (root.queue-open) { root.lyrics-open = false; } }
             }
         }
@@ -2441,17 +2439,19 @@ export component AppWindow inherits Window {
             position-label: root.position-label;
             duration-label: root.duration-label;
             volume <=> root.volume;
-            muted: root.muted;
+            lyrics-open: root.lyrics-open;
             shuffle: root.shuffle;
             repeat: root.repeat;
-            open-player => { root.section-changed("player"); }
+            // There is no separate player page in this shell: the queue rail is
+            // the now-playing screen, so the artwork opens that instead.
+            open-player => { root.queue-open = true; root.lyrics-open = false; }
             toggle => { root.toggle-playback(); }
             previous => { root.previous-track(); }
             next => { root.next-track(); }
             seek(ms) => { root.seek-requested(ms); }
             seeking(value) => { root.seeking = value; }
             volume-changed(value) => { root.volume-changed(value); }
-            mute => { root.mute-toggled(); }
+            lyrics-toggle => { root.lyrics-toggle(); }
             shuffle-toggle => { root.shuffle-toggled(); }
             repeat-toggle => { root.repeat-toggled(); }
         }
@@ -3614,39 +3614,6 @@ export component AppWindow inherits Window {
                     padding: 24px;
                     spacing: 14px;
 
-
-                        RuleEditor {
-                            heading: "New smart playlist";
-                            note: "A smart playlist fills itself from these rules every time it is opened, so rating, favouriting or adding a track can change it without editing the playlist. Up to 200 tracks.";
-                            name: root.smart-name-input;
-                            filter-text: root.smart-filter-input;
-                            favourites: root.smart-favourites;
-                            min-rating: root.smart-min-rating;
-                            year-from: root.smart-year-input;
-                            name-edited(text) => {
-                                root.smart-name-input = text;
-                            }
-                            filter-edited(text) => {
-                                root.smart-filter-input = text;
-                            }
-                            favourites-toggled(on) => {
-                                root.smart-favourites = on;
-                            }
-                            rating-changed(stars) => {
-                                root.smart-min-rating = stars;
-                            }
-                            year-edited(text) => {
-                                root.smart-year-input = text;
-                            }
-                            submitted() => {
-                                root.playlist-smart-create(root.smart-name-input, root.smart-filter-input, root.smart-favourites, root.smart-min-rating, root.smart-year-input);
-                            }
-                        }
-
-                        if root.playlists.length == 0 : EmptyState {
-                            message: "No playlists yet. Name one above and press Create.";
-                        }
-                        
                     for item in root.albums: AlbumCard {
                         album: item;
                         opened(id) => { root.open-album(id); }

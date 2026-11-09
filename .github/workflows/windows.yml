@@ -61,8 +61,9 @@ jobs:
               done
 
           # Double-clicking the exe would not find the plugins, so ship a launcher
-          # that points GStreamer at the folder next to it.
-          printf '@echo off\r\nset "GST_PLUGIN_PATH_1_0=%%~dp0gstreamer-1.0"\r\nstart "" "%%~dp0sonora.exe"\r\n' > dist/run-sonora.bat
+          # that points GStreamer at the folder next to it. Only
+          # GST_PLUGIN_SYSTEM_PATH_1_0 is honoured; a bare GST_PLUGIN_PATH is not.
+          printf '@echo off\r\nset "GST_PLUGIN_SYSTEM_PATH_1_0=%%~dp0gstreamer-1.0"\r\nstart "" "%%~dp0sonora.exe"\r\n' > dist/run-sonora.bat
 
           ls -la dist | head -40
           echo "plugins: $(find dist/gstreamer-1.0 -name '*.dll' | wc -l)"
