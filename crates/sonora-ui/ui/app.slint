@@ -606,13 +606,19 @@ component TrackRowItem inherits Rectangle {
         padding-right: RowArtwork.window-width < 1300px ? 8px : 12px;
         spacing: RowArtwork.window-width < 1460px ? 6px : 14px;
 
-        Text {
-            text: "\{root.position}";
+        Rectangle {
             width: RowArtwork.window-width < 1300px ? 18px : 26px;
-            visible: root.show-index;
-            color: Palette.muted;
-            font-size: 12px;
-            vertical-alignment: center;
+            height: parent.height;
+            background: transparent;
+            Text {
+                y: (parent.height - self.height) / 2;
+                text: "\{root.position}";
+                width: parent.width;
+                visible: root.show-index;
+                color: Palette.muted;
+                font-size: 12px;
+                vertical-alignment: center;
+            }
         }
 
         Rectangle {

@@ -2328,7 +2328,7 @@ fn wire_lyrics(
 fn wire_artwork(weak: Weak<AppWindow>, db: Db, handle: Handle, engine: Arc<Engine>) -> Timer {
     let timer = Timer::default();
     let timer_weak = weak.clone();
-    let mut shown: Option<(Option<TrackId>, Vec<TrackId>, AppearanceSettings)> = None;
+    let mut shown: Option<(Option<TrackId>, Vec<TrackId>, bool, bool)> = None;
     timer.start(TimerMode::Repeated, Duration::from_millis(100), move || {
         let Some(window) = timer_weak.upgrade() else {
             return;
