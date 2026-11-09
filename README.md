@@ -1,3 +1,5 @@
+linux support is currently stalled cuz i currently dont have anybody whos willing to test on linux, but it will be resumed once sonora gets to a more usable state
+
 > [!WARNING]
 > this is ai slop
 > i am just an unemployed retard whose expertise does not include coding
