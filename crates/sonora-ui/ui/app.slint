@@ -233,7 +233,6 @@ component IconButton inherits Rectangle {
     in property <string> label;
     in property <bool> active: false;
     in property <bool> enabled: true;
-    in property <length> icon-size: 25px;
     callback clicked();
     width: 44px;
     height: 44px;
@@ -245,8 +244,8 @@ component IconButton inherits Rectangle {
     forward-focus: focus;
     Image {
         source: root.icon;
-        width: root.icon-size;
-        height: root.icon-size;
+        width: 25px;
+        height: 25px;
         image-fit: contain;
         x: (parent.width - self.width) / 2;
         y: (parent.height - self.height) / 2;
@@ -414,15 +413,15 @@ component NavItem inherits Rectangle {
     }
 
     Text {
+        x: 12px * root.scale;
         y: 0px;
+        width: parent.width - 24px * root.scale;
+        height: parent.height;
         text: root.label;
         color: root.active ? Palette.text : Palette.muted;
-        font-size: 24px * root.scale;
+        font-size: 26px * root.scale;
         font-weight: 600;
-        x: 0px;
-        width: parent.width;
-        height: 28px * root.scale;
-        vertical-alignment: top;
+        vertical-alignment: center;
     }
 }
 
@@ -588,7 +587,7 @@ component TrackRowItem inherits Rectangle {
 
     height: 56px;
     border-radius: 6px;
-    background: touch.pressed || root.track.id == RowArtwork.current-track ? Palette.accent-soft : (touch.has-hover ? Palette.panel-hover : transparent);
+    background: touch.pressed || root.track.id == RowArtwork.current-track ? Palette.accent-soft : ((touch.has-hover || title-touch.has-hover || artist-touch.has-hover || next-touch.has-hover || queue-touch.has-hover || favourite-touch.has-hover || rating-touch.has-hover) ? Palette.panel-hover : transparent);
     function activate() {
         if (RowArtwork.playback-available) {
             RowArtwork.current-track = root.track.id;
@@ -618,14 +617,20 @@ component TrackRowItem inherits Rectangle {
 
         Rectangle {
             width: 40px;
-            height: 40px;
-            border-radius: 6px;
-            background: Palette.panel;
-            if root.absolute-position.y + root.height > 0px && root.absolute-position.y < RowArtwork.window-height: SongCover {
+            height: parent.height;
+            background: transparent;
+            Rectangle {
+                y: (parent.height - self.height) / 2;
                 width: parent.width;
-                height: parent.height;
-                track-id: root.track.id;
-                key: root.track.cover-key;
+                height: 40px;
+                border-radius: 6px;
+                background: Palette.panel;
+                if root.absolute-position.y + root.height > 0px && root.absolute-position.y < RowArtwork.window-height: SongCover {
+                    width: parent.width;
+                    height: parent.height;
+                    track-id: root.track.id;
+                    key: root.track.cover-key;
+                }
             }
         }
 
@@ -635,6 +640,7 @@ component TrackRowItem inherits Rectangle {
             alignment: center;
             horizontal-stretch: 1;
             min-width: 0px;
+            height: parent.height;
 
             // The main song area always plays; album and artist credits keep their links.
             Rectangle {
@@ -658,14 +664,14 @@ component TrackRowItem inherits Rectangle {
                 }
             }
 
-            // Artist and album are separate links; history rows append their time.
+            // Artist and album are separate links joined by a bullet; history
+            // rows append their time.
             HorizontalLayout {
                 spacing: 0px;
                 height: 16px;
 
                 Rectangle {
-                    horizontal-stretch: 1;
-                    min-width: 0px;
+                    width: artist-text.preferred-width;
                     background: transparent;
                     artist-text := Text {
                         x: 0px;
@@ -733,139 +739,181 @@ component TrackRowItem inherits Rectangle {
 
         Rectangle {
             width: RowArtwork.window-width < 1300px ? 32px : 44px;
-            height: 24px;
-            border-radius: 6px;
-            background: next-touch.has-hover ? Palette.accent-soft : transparent;
+            height: parent.height;
+            background: transparent;
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: parent.width;
+                height: 24px;
+                border-radius: 6px;
+                background: next-touch.has-hover ? Palette.accent-soft : transparent;
 
-            Text {
-                text: "Next";
-                color: Palette.muted;
-                font-size: 10px;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
+                Text {
+                    text: "Next";
+                    color: Palette.muted;
+                    font-size: 10px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
 
-            next-touch := TouchArea {
-                enabled: RowArtwork.playback-available;
-                clicked => {
-                    root.play-next(root.track.id);
+                next-touch := TouchArea {
+                    enabled: RowArtwork.playback-available;
+                    clicked => {
+                        root.play-next(root.track.id);
+                    }
                 }
             }
         }
 
         Rectangle {
             width: RowArtwork.window-width < 1300px ? 32px : 44px;
-            height: 24px;
-            border-radius: 6px;
-            background: queue-touch.has-hover ? Palette.accent-soft : transparent;
+            height: parent.height;
+            background: transparent;
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: parent.width;
+                height: 24px;
+                border-radius: 6px;
+                background: queue-touch.has-hover ? Palette.accent-soft : transparent;
 
-            Text {
-                text: "Add";
-                color: Palette.muted;
-                font-size: 10px;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
+                Text {
+                    text: "Add";
+                    color: Palette.muted;
+                    font-size: 10px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
 
-            queue-touch := TouchArea {
-                enabled: RowArtwork.playback-available;
-                clicked => {
-                    root.enqueue(root.track.id);
+                queue-touch := TouchArea {
+                    enabled: RowArtwork.playback-available;
+                    clicked => {
+                        root.enqueue(root.track.id);
+                    }
                 }
             }
         }
 
         if root.show-add : Rectangle {
             width: 28px;
-            height: 24px;
-            border-radius: 6px;
-            background: playlist-touch.has-hover ? Palette.accent-soft : transparent;
+            height: parent.height;
+            background: transparent;
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: parent.width;
+                height: 24px;
+                border-radius: 6px;
+                background: playlist-touch.has-hover ? Palette.accent-soft : transparent;
 
-            Text {
-                text: "+";
-                color: Palette.muted;
-                font-size: 14px;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
+                Text {
+                    text: "+";
+                    color: Palette.muted;
+                    font-size: 14px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
 
-            playlist-touch := TouchArea {
-                clicked => {
-                    root.add-to-playlist(root.track.id, root.track.title);
+                playlist-touch := TouchArea {
+                    clicked => {
+                        root.add-to-playlist(root.track.id, root.track.title);
+                    }
                 }
             }
         }
 
         if root.show-remove: Rectangle {
             width: 24px;
-            height: 24px;
-            border-radius: 6px;
-            background: remove-touch.has-hover ? Palette.accent-soft : transparent;
+            height: parent.height;
+            background: transparent;
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: parent.width;
+                height: 24px;
+                border-radius: 6px;
+                background: remove-touch.has-hover ? Palette.accent-soft : transparent;
 
-            Text {
-                text: "×";
-                color: Palette.muted;
-                font-size: 14px;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
+                Text {
+                    text: "×";
+                    color: Palette.muted;
+                    font-size: 14px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
 
-            remove-touch := TouchArea {
-                clicked => {
-                    root.remove(root.track.id);
+                remove-touch := TouchArea {
+                    clicked => {
+                        root.remove(root.track.id);
+                    }
                 }
             }
         }
 
         Rectangle {
             width: 28px;
-            height: 24px;
-            border-radius: 6px;
-            background: favourite-touch.has-hover ? Palette.accent-soft : transparent;
+            height: parent.height;
+            background: transparent;
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: parent.width;
+                height: 24px;
+                border-radius: 6px;
+                background: favourite-touch.has-hover ? Palette.accent-soft : transparent;
 
-            Text {
-                text: root.track.favourite ? "♥" : "♡";
-                color: root.track.favourite ? Palette.accent : Palette.muted;
-                font-size: 14px;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
+                Text {
+                    text: root.track.favourite ? "♥" : "♡";
+                    color: root.track.favourite ? Palette.accent : Palette.muted;
+                    font-size: 14px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
 
-            favourite-touch := TouchArea {
-                clicked => {
-                    root.favourite(root.track.id, !root.track.favourite);
+                favourite-touch := TouchArea {
+                    clicked => {
+                        root.favourite(root.track.id, !root.track.favourite);
+                    }
                 }
             }
         }
 
         Rectangle {
             width: 44px;
-            height: 24px;
-            border-radius: 6px;
-            background: rating-touch.has-hover ? Palette.accent-soft : transparent;
+            height: parent.height;
+            background: transparent;
+            Rectangle {
+                y: (parent.height - self.height) / 2;
+                width: parent.width;
+                height: 24px;
+                border-radius: 6px;
+                background: rating-touch.has-hover ? Palette.accent-soft : transparent;
 
-            Text {
-                text: root.track.rating > 0 ? "★ \{root.track.rating}" : "☆";
-                color: root.track.rating > 0 ? Palette.accent : Palette.muted;
-                font-size: 11px;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
+                Text {
+                    text: root.track.rating > 0 ? "★ \{root.track.rating}" : "☆";
+                    color: root.track.rating > 0 ? Palette.accent : Palette.muted;
+                    font-size: 11px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
 
-            rating-touch := TouchArea {
-                clicked => {
-                    root.rate(root.track.id, root.track.rating);
+                rating-touch := TouchArea {
+                    clicked => {
+                        root.rate(root.track.id, root.track.rating);
+                    }
                 }
             }
         }
 
-        Text {
-            text: root.track.duration;
+        Rectangle {
             width: RowArtwork.window-width < 1300px ? 48px : 52px;
-            color: Palette.muted;
-            font-size: 12px;
-            horizontal-alignment: right;
-            vertical-alignment: center;
+            height: parent.height;
+            background: transparent;
+            Text {
+                y: (parent.height - self.height) / 2;
+                text: root.track.duration;
+                width: parent.width;
+                color: Palette.muted;
+                font-size: 12px;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+            }
         }
     }
 }
@@ -1352,7 +1400,6 @@ component SidebarPlayer inherits Rectangle {
     in property <string> position-label: "0:00";
     in property <string> duration-label: "0:00";
     in-out property <float> volume: 1;
-    in property <bool> muted: false;
     in property <bool> shuffle: false;
     in property <int> repeat: 0;
     callback open-player();
@@ -1362,7 +1409,6 @@ component SidebarPlayer inherits Rectangle {
     callback seek(int);
     callback seeking(bool);
     callback volume-changed(float);
-    callback mute();
     callback shuffle-toggle();
     callback repeat-toggle();
     height: 446px * root.scale;
@@ -1517,15 +1563,6 @@ component SidebarPlayer inherits Rectangle {
                 width: 44px * root.scale;
                 height: 44px * root.scale;
                 clicked => { root.shuffle-toggle(); }
-            }
-
-            IconButton {
-                icon: @image-url("../../../assets/design/volume.svg");
-                label: root.muted ? "Unmute" : "Mute";
-                active: root.muted;
-                width: 44px * root.scale;
-                height: 44px * root.scale;
-                clicked => { root.mute(); }
             }
         }
 
@@ -1709,7 +1746,11 @@ component LyricsPanel inherits Rectangle {
 
     callback close();
 
-    width: 374px;
+    // The page owns the whole content area; swallow clicks that land on
+    // padding or spacing so nothing underneath reacts.
+    shield := TouchArea {
+    }
+
     background: Palette.sidebar;
     border-radius: Palette.panel-radius;
     in-out property <bool> following: true;
@@ -1752,14 +1793,14 @@ component LyricsPanel inherits Rectangle {
 
     VerticalLayout {
         alignment: stretch;
-        padding: 14px;
-        spacing: 8px;
+        padding: 24px;
+        spacing: 10px;
 
         HorizontalLayout {
             Text {
                 text: "Lyrics";
                 color: Palette.text;
-                font-size: 15px;
+                font-size: 24px;
                 font-weight: 600;
                 horizontal-stretch: 1;
                 vertical-alignment: center;
@@ -1805,13 +1846,16 @@ component LyricsPanel inherits Rectangle {
                     width: lyrics-view.visible-width;
                     height: self.preferred-height;
                     alignment: start;
-                    spacing: 6px;
+                    spacing: 12px;
                     for line[index] in root.lines: Text {
                         property <bool> current: index == root.active;
+                        // Timed lyrics grow the line playback is on; plain
+                        // lyrics read at one comfortable size.
+                        property <bool> synced: root.active >= 0;
                         text: line;
-                        color: current ? Palette.accent : Palette.muted;
-                        font-size: 12px;
-                        font-weight: current ? 600 : 400;
+                        color: synced && current ? Palette.accent : (synced ? Palette.muted : Palette.text);
+                        font-size: synced ? (current ? 30px : 22px) : 18px;
+                        font-weight: synced && current ? 700 : 400;
                         wrap: word-wrap;
                         changed y => { root.follow-line(index, self.y, self.height); }
                         changed current => { root.follow-line(index, self.y, self.height); }
@@ -1819,7 +1863,7 @@ component LyricsPanel inherits Rectangle {
                     if root.lines.length == 0: Text {
                         text: root.text;
                         color: Palette.text;
-                        font-size: 12px;
+                        font-size: 16px;
                         wrap: word-wrap;
                     }
                 }
@@ -2167,7 +2211,8 @@ export component AppWindow inherits Window {
 
     in-out property <bool> settings-blur-panels: true;
     in-out property <bool> settings-cover-background: true;
-    callback appearance-changed(bool, bool);
+    in-out property <bool> settings-show-status: false;
+    callback appearance-changed(bool, bool, bool);
     in-out property <string> settings-format-tier: "lossless";
     // float, because these two drive Sliders through a two-way binding: an int
     // property could only be read by the slider, and the -/+ buttons would stop
@@ -2211,7 +2256,6 @@ export component AppWindow inherits Window {
     callback queue-remove(int);
     callback save-settings(string, int, int, string, int, string, string, string, string, bool, string, int);
     callback cache-action(bool);
-    callback mute-toggled();
     callback shuffle-toggled();
     callback repeat-toggled();
     callback pick-settings-folder(string);
@@ -2335,7 +2379,7 @@ export component AppWindow inherits Window {
         blend: root.art-blend;
     }
 
-    if root.queue-open || root.lyrics-open: PanelBackdrop {
+    if root.queue-open: PanelBackdrop {
         x: root.width - root.rail-width - 10px * root.design-scale;
         y: root.content-top;
         width: root.rail-width;
@@ -2359,8 +2403,10 @@ export component AppWindow inherits Window {
         background: Palette.sidebar;
         Image {
             source: @image-url("../../../assets/design/logo.svg");
-            width: 56px * root.design-scale;
-            height: 68px * root.design-scale;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 46px * root.design-scale;
+            height: 56px * root.design-scale;
         }
 
         TouchArea {
@@ -2404,13 +2450,18 @@ export component AppWindow inherits Window {
             width: max(350px, 380px * root.design-scale);
             height: 36px;
             spacing: 10px;
-            IconButton {
-                icon: @image-url("../../../assets/design/search.svg");
-                label: "Search";
-                icon-size: 20px;
+            // Decorative: the field itself is the control.
+            Rectangle {
                 width: 24px;
-                height: 24px;
-                clicked => { search-input.focus(); }
+                height: 36px;
+                background: transparent;
+                Image {
+                    source: @image-url("../../../assets/design/search.svg");
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: 18px;
+                    height: 18px;
+                }
             }
 
             Rectangle {
@@ -2437,7 +2488,7 @@ export component AppWindow inherits Window {
             }
 
             IconButton {
-                icon: @image-url("../../../assets/design/lyrics.svg");
+                icon: @image-url("../../../assets/design/volume.svg");
                 label: "Lyrics";
                 active: root.lyrics-open;
                 height: 36px;
@@ -2469,7 +2520,6 @@ export component AppWindow inherits Window {
             position-label: root.position-label;
             duration-label: root.duration-label;
             volume <=> root.volume;
-            muted: root.muted;
             shuffle: root.shuffle;
             repeat: root.repeat;
             // There is no separate player page in this shell: the queue rail is
@@ -2481,7 +2531,6 @@ export component AppWindow inherits Window {
             seek(ms) => { root.seek-requested(ms); }
             seeking(value) => { root.seeking = value; }
             volume-changed(value) => { root.volume-changed(value); }
-            mute => { root.mute-toggled(); }
             shuffle-toggle => { root.shuffle-toggled(); }
             repeat-toggle => { root.repeat-toggled(); }
         }
@@ -2548,7 +2597,7 @@ export component AppWindow inherits Window {
     Rectangle {
         x: 286px * root.design-scale;
         y: root.content-top;
-        width: root.width - self.x - (root.queue-open || root.lyrics-open ? root.rail-width + 20px * root.design-scale : 10px * root.design-scale);
+        width: root.width - self.x - (root.queue-open ? root.rail-width + 20px * root.design-scale : 10px * root.design-scale);
         height: root.height - self.y - 33px * root.design-scale;
         clip: true;
         VerticalLayout {
@@ -2577,7 +2626,7 @@ export component AppWindow inherits Window {
                             horizontal-stretch: 1;
                         }
 
-                        ActionButton {
+                        if root.settings-history-retention > 0: ActionButton {
                             label: "History";
                             primary: false;
                             clicked => { root.section-changed("history"); }
@@ -2730,16 +2779,27 @@ export component AppWindow inherits Window {
                         font-weight: 600;
                     }
 
-                    SettingSwitch {
+                    if root.settings-cover-background: SettingSwitch {
                         label: "Blur panels";
                         checked <=> root.settings-blur-panels;
-                        toggled(value) => { root.appearance-changed(value, root.settings-cover-background); }
+                        toggled(value) => { root.appearance-changed(value, root.settings-cover-background, root.settings-show-status); }
                     }
 
                     SettingSwitch {
                         label: "Use blurred cover art as the player background";
                         checked <=> root.settings-cover-background;
-                        toggled(value) => { root.appearance-changed(root.settings-blur-panels, value); }
+                        toggled(value) => {
+                            // Blur rides on the backdrop, so it cannot stay on
+                            // once the backdrop itself is off.
+                            root.settings-blur-panels = value && root.settings-blur-panels;
+                            root.appearance-changed(root.settings-blur-panels, value, root.settings-show-status);
+                        }
+                    }
+
+                    SettingSwitch {
+                        label: "Status messages";
+                        checked <=> root.settings-show-status;
+                        toggled(value) => { root.appearance-changed(root.settings-blur-panels, root.settings-cover-background, value); }
                     }
 
                     Text {
@@ -2848,6 +2908,7 @@ export component AppWindow inherits Window {
 
                     ComboBox {
                         model: [
+                            "Never",
                             "1 hour",
                             "1 day",
                             "2 days",
@@ -3865,17 +3926,25 @@ export component AppWindow inherits Window {
         }
     }
 
-    if root.lyrics-open: LyricsPanel {
-        x: root.width - root.rail-width - 10px * root.design-scale;
+    // Lyrics take the whole content area rather than a side rail.
+    if root.lyrics-open: Rectangle {
+        x: 286px * root.design-scale;
         y: root.content-top;
-        width: root.rail-width;
-        height: root.height - self.y - 9px * root.design-scale;
-        following <=> root.lyrics-following;
-        text: root.lyrics-text;
-        status: root.lyrics-status;
-        lines: root.lyric-lines;
-        active: root.lyric-active;
-        close => { root.lyrics-open = false; }
+        width: root.width - self.x - (root.queue-open ? root.rail-width + 20px * root.design-scale : 10px * root.design-scale);
+        height: root.height - self.y - 33px * root.design-scale;
+
+        LyricsPanel {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            following <=> root.lyrics-following;
+            text: root.lyrics-text;
+            status: root.lyrics-status;
+            lines: root.lyric-lines;
+            active: root.lyric-active;
+            close => { root.lyrics-open = false; }
+        }
     }
     if root.queue-open: QueuePanel {
         x: root.width - root.rail-width - 10px * root.design-scale;
@@ -3891,10 +3960,10 @@ export component AppWindow inherits Window {
         open-album(id) => { root.open-album(id); }
         open-artist(id, name) => { root.open-artist(id, name); }
     }
-    Text {
-        x: 286px * root.design-scale;
-        y: root.height - self.height - 12px;
-        width: max(100px, root.width - self.x - root.rail-width - 32px);
+    if root.settings-show-status: Text {
+        x: 16px * root.design-scale;
+        y: root.height - self.height - 16px * root.design-scale;
+        width: root.side-width - 32px * root.design-scale;
         text: root.status;
         color: Palette.muted;
         font-size: 11px;

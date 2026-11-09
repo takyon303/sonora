@@ -293,6 +293,8 @@ fn sanitize(segment: &str) -> String {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HistoryRetention {
+    /// Record nothing at all; the History page hides itself.
+    Never,
     Hour,
     Day,
     Days2,
@@ -310,7 +312,8 @@ pub enum HistoryRetention {
 }
 
 impl HistoryRetention {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 14] = [
+        Self::Never,
         Self::Hour,
         Self::Day,
         Self::Days2,
@@ -328,6 +331,7 @@ impl HistoryRetention {
 
     pub fn seconds(self) -> Option<i64> {
         let days = match self {
+            Self::Never => return Some(0),
             Self::Hour => return Some(3600),
             Self::Day => 1,
             Self::Days2 => 2,
@@ -364,6 +368,8 @@ impl HistoryRetention {
 pub struct AppearanceSettings {
     pub blur_panels: bool,
     pub cover_background: bool,
+    /// Show the status line at the bottom of the sidebar. Opt-in.
+    pub show_status: bool,
 }
 
 impl Default for AppearanceSettings {
@@ -371,6 +377,7 @@ impl Default for AppearanceSettings {
         Self {
             blur_panels: true,
             cover_background: true,
+            show_status: false,
         }
     }
 }

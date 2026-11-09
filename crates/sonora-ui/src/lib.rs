@@ -395,6 +395,9 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
                 if section.as_str() == "playlists" {
                     ui.set_playlist_name_input("".into());
                 }
+                // Choosing a page leaves the lyrics page; the lyrics button in
+                // the top bar is how it is opened again.
+                ui.set_lyrics_open(false);
                 ui.set_playlist_delete_armed(false);
                 ui.set_section(section);
             }
@@ -603,6 +606,7 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
                 let appearance = weak.upgrade().map(|ui| AppearanceSettings {
                     blur_panels: ui.get_settings_blur_panels(),
                     cover_background: ui.get_settings_cover_background(),
+                    show_status: ui.get_settings_show_status(),
                 });
                 handle.spawn(async move {
                     let mut settings = match db.load_settings().await {
@@ -933,11 +937,11 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
     if let Some(worker) = playback_worker.as_mut() {
         worker.shutdown()?;
     }
-    ui.on_appearance_changed(|_, _| {});
     handle.block_on(appearance_writer)?;
     handle.block_on(ctx.db.save_appearance(AppearanceSettings {
         blur_panels: ui.get_settings_blur_panels(),
         cover_background: ui.get_settings_cover_background(),
+        show_status: ui.get_settings_show_status(),
     }))?;
 
     // Save the queue as it is right now so playback resumes on the next
@@ -959,10 +963,11 @@ fn wire_appearance(
     handle: Handle,
 ) -> tokio::task::JoinHandle<()> {
     let (sender, mut changes) = tokio::sync::watch::channel(None::<AppearanceSettings>);
-    ui.on_appearance_changed(move |blur_panels, cover_background| {
+    ui.on_appearance_changed(move |blur_panels, cover_background, show_status| {
         sender.send_replace(Some(AppearanceSettings {
             blur_panels,
             cover_background,
+            show_status,
         }));
     });
     handle.spawn(async move {
@@ -1335,6 +1340,11 @@ fn attach_playback(
         let engine = engine.clone();
         ui.on_volume_changed(move |volume| {
             engine.set_volume(f64::from(volume));
+            // The mute control is gone from the dock, so dragging the volume
+            // is the way back from a muted session.
+            if engine.muted() {
+                engine.set_muted(false);
+            }
         });
     }
 
@@ -1360,10 +1370,6 @@ fn attach_playback(
         });
     }
 
-    {
-        let engine = engine.clone();
-        ui.on_mute_toggled(move || engine.set_muted(!engine.muted()));
-    }
     {
         let engine = engine.clone();
         ui.on_shuffle_toggled(move || engine.set_shuffle(!engine.shuffle()));
@@ -1435,9 +1441,17 @@ fn attach_playback(
                     let db = timer_db.clone();
                     let weak = timer_weak.clone();
                     timer_handle.spawn(async move {
-                        if let Err(err) = db.record_play(track).await {
-                            set_status(&weak, format!("Could not record play: {err}"));
-                            return;
+                        // "Never" means no history is written at all.
+                        let retention = db
+                            .load_settings()
+                            .await
+                            .map(|settings| settings.history_retention)
+                            .unwrap_or_default();
+                        if retention != HistoryRetention::Never {
+                            if let Err(err) = db.record_play(track).await {
+                                set_status(&weak, format!("Could not record play: {err}"));
+                                return;
+                            }
                         }
                         let result = tokio::try_join!(
                             db.history(HISTORY_LIMIT, 0),
@@ -2331,8 +2345,16 @@ fn wire_artwork(weak: Weak<AppWindow>, db: Db, handle: Handle, engine: Arc<Engin
         let appearance = AppearanceSettings {
             blur_panels: window.get_settings_blur_panels(),
             cover_background: window.get_settings_cover_background(),
+            show_status: window.get_settings_show_status(),
         };
-        let selection = (current, upcoming.clone(), appearance);
+        // Only the two backdrop settings affect the artwork work; the status
+        // toggle must not re-decode and re-blur the cover.
+        let selection = (
+            current,
+            upcoming.clone(),
+            appearance.blur_panels,
+            appearance.cover_background,
+        );
         if shown.as_ref() == Some(&selection) {
             return;
         }
@@ -2423,6 +2445,18 @@ fn request_artwork(
                         if let Some(ui) = weak.upgrade() {
                             if ui.get_artwork_generation() == generation {
                                 ui.set_art_transition(true);
+                            }
+                        }
+                    });
+                    // The 140 ms blend is over by now; drop the outgoing
+                    // textures so they are not held for the rest of the session.
+                    let weak = ui.as_weak();
+                    slint::Timer::single_shot(Duration::from_millis(300), move || {
+                        if let Some(ui) = weak.upgrade() {
+                            if ui.get_artwork_generation() == generation {
+                                ui.set_previous_artwork(slint::Image::default());
+                                ui.set_previous_backdrop(slint::Image::default());
+                                ui.set_previous_panel_backdrop(slint::Image::default());
                             }
                         }
                     });
@@ -2872,6 +2906,7 @@ fn apply_settings(ui: &AppWindow, settings: &Settings) {
     ui.set_settings_history_retention(settings.history_retention.index() as i32);
     ui.set_settings_blur_panels(settings.appearance.blur_panels);
     ui.set_settings_cover_background(settings.appearance.cover_background);
+    ui.set_settings_show_status(settings.appearance.show_status);
     ui.set_settings_device(settings.playback_device.as_deref().unwrap_or("").into());
 }
 
@@ -3217,6 +3252,7 @@ mod tests {
             AppearanceSettings {
                 blur_panels: false,
                 cover_background: true,
+                show_status: false,
             },
         );
         assert!(background.is_some());
@@ -3226,7 +3262,8 @@ mod tests {
                 Some(&cover),
                 AppearanceSettings {
                     blur_panels: true,
-                    cover_background: false
+                    cover_background: false,
+                    show_status: false,
                 }
             ),
             (None, None)

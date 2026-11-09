@@ -1287,13 +1287,16 @@ impl Db {
 
     pub async fn save_appearance(&self, appearance: sonora_core::AppearanceSettings) -> Result<()> {
         sqlx::query("INSERT INTO settings (key, value) VALUES (?1, json_object('appearance',
-                         json_object('blur_panels', json(?2), 'cover_background', json(?3))))
+                         json_object('blur_panels', json(?2), 'cover_background', json(?3),
+                                     'show_status', json(?4))))
                      ON CONFLICT(key) DO UPDATE SET value = json_set(
                          CASE WHEN json_valid(settings.value) THEN settings.value ELSE '{}' END,
-                         '$.appearance', json_object('blur_panels', json(?2), 'cover_background', json(?3)))")
+                         '$.appearance', json_object('blur_panels', json(?2), 'cover_background', json(?3),
+                                                     'show_status', json(?4)))")
             .bind(SETTINGS_KEY)
             .bind(if appearance.blur_panels { "true" } else { "false" })
             .bind(if appearance.cover_background { "true" } else { "false" })
+            .bind(if appearance.show_status { "true" } else { "false" })
             .execute(&self.pool).await.db()?;
         Ok(())
     }
@@ -2692,6 +2695,7 @@ mod tests {
             let appearance = sonora_core::AppearanceSettings {
                 blur_panels,
                 cover_background,
+                show_status: false,
             };
             db.save_appearance(appearance).await.unwrap();
             let saved = db.load_settings().await.unwrap();
