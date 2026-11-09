@@ -32,8 +32,8 @@ fn prepare_gstreamer_plugins() {
     else {
         return;
     };
-    let configured = std::env::var_os("GST_PLUGIN_SYSTEM_PATH_1_0")
-        .is_some_and(|value| !value.is_empty());
+    let configured =
+        std::env::var_os("GST_PLUGIN_SYSTEM_PATH_1_0").is_some_and(|value| !value.is_empty());
     if !configured {
         log::debug!("bundled GStreamer plugins at {}", plugins.display());
         std::env::set_var("GST_PLUGIN_SYSTEM_PATH_1_0", &plugins);
