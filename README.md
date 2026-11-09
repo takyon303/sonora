@@ -178,3 +178,9 @@ for additional setup details, platform-specific requirements and development con
 ## license
 
 sonora is free software licensed under **GPL-3.0-or-later**.
+
+## credit
+
+thanks:
+- [taskynn](https://www.instagram.com/tas.kynn/) for turning my design mockup into a figma project
+- [moxiu](https://github.com/cfels/) for porting the aforementioned project & adding a nix flake
