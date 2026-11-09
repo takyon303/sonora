@@ -1335,11 +1335,6 @@ fn attach_playback(
         let engine = engine.clone();
         ui.on_volume_changed(move |volume| {
             engine.set_volume(f64::from(volume));
-            // The mute button gave way to the lyrics toggle, so dragging the
-            // volume is the single remaining way to unmute.
-            if engine.muted() {
-                engine.set_muted(false);
-            }
         });
     }
 
@@ -1365,6 +1360,10 @@ fn attach_playback(
         });
     }
 
+    {
+        let engine = engine.clone();
+        ui.on_mute_toggled(move || engine.set_muted(!engine.muted()));
+    }
     {
         let engine = engine.clone();
         ui.on_shuffle_toggled(move || engine.set_shuffle(!engine.shuffle()));

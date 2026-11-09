@@ -233,6 +233,7 @@ component IconButton inherits Rectangle {
     in property <string> label;
     in property <bool> active: false;
     in property <bool> enabled: true;
+    in property <length> icon-size: 25px;
     callback clicked();
     width: 44px;
     height: 44px;
@@ -244,9 +245,11 @@ component IconButton inherits Rectangle {
     forward-focus: focus;
     Image {
         source: root.icon;
-        width: 25px;
-        height: 25px;
+        width: root.icon-size;
+        height: root.icon-size;
         image-fit: contain;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
     }
 
     Rectangle {
@@ -270,6 +273,31 @@ component IconButton inherits Rectangle {
         key-pressed(event) => {
             if (event.text == " " || event.text == "\n") { root.clicked(); return accept; }
             return reject;
+        }
+    }
+
+    // Icon-only controls carry their label on hover. Touch input produces no
+    // hover, so the tooltip simply never appears there.
+    if touch.has-hover: Rectangle {
+        y: -29px;
+        x: (parent.width - self.width) / 2;
+        width: tip.preferred-width + 16px;
+        height: 24px;
+        border-radius: 6px;
+        background: Palette.bg;
+        border-width: 1px;
+        border-color: Palette.stroke;
+
+        tip := Text {
+            x: (parent.width - self.width) / 2;
+            y: 0px;
+            width: self.preferred-width;
+            height: parent.height;
+            text: root.label;
+            color: Palette.text;
+            font-size: 11px;
+            font-weight: 500;
+            vertical-alignment: center;
         }
     }
 }
@@ -695,12 +723,11 @@ component TrackRowItem inherits Rectangle {
                 }
             }
 
-            Text {
+            if root.track.replay_gain != "": Text {
                 text: root.track.replay_gain;
                 color: Palette.accent;
                 font-size: 11px;
                 overflow: elide;
-                visible: root.track.replay_gain != "";
             }
         }
 
@@ -1325,7 +1352,7 @@ component SidebarPlayer inherits Rectangle {
     in property <string> position-label: "0:00";
     in property <string> duration-label: "0:00";
     in-out property <float> volume: 1;
-    in property <bool> lyrics-open: false;
+    in property <bool> muted: false;
     in property <bool> shuffle: false;
     in property <int> repeat: 0;
     callback open-player();
@@ -1335,7 +1362,7 @@ component SidebarPlayer inherits Rectangle {
     callback seek(int);
     callback seeking(bool);
     callback volume-changed(float);
-    callback lyrics-toggle();
+    callback mute();
     callback shuffle-toggle();
     callback repeat-toggle();
     height: 446px * root.scale;
@@ -1493,15 +1520,17 @@ component SidebarPlayer inherits Rectangle {
             }
 
             IconButton {
-                icon: @image-url("../../../assets/design/lyrics.svg");
-                label: "Lyrics";
-                active: root.lyrics-open;
+                icon: @image-url("../../../assets/design/volume.svg");
+                label: root.muted ? "Unmute" : "Mute";
+                active: root.muted;
                 width: 44px * root.scale;
                 height: 44px * root.scale;
-                clicked => { root.lyrics-toggle(); }
+                clicked => { root.mute(); }
             }
         }
 
+        // Declared before the icon row so a hover tooltip on the buttons is
+        // drawn on top of the slider rather than beneath it.
         Slider {
             x: 12px * root.scale;
             // The icon row above ends at 64px, and the slider's touch area is
@@ -1541,26 +1570,15 @@ component QueuePanel inherits Rectangle {
         y: 6px * root.scale;
         width: parent.width - 24px * root.scale;
         height: 28px * root.scale;
-        text: "Playing from:";
+        text: root.context == "" ? "Playing from: Library" : "Playing from: \{root.context}";
         color: Palette.text;
         font-size: 24px * root.scale;
-    }
-
-    Text {
-        x: 12px * root.scale;
-        y: 42px * root.scale;
-        width: parent.width - 24px * root.scale;
-        height: 38px * root.scale;
-        text: root.context == "" ? "Library" : root.context;
-        color: Palette.text;
-        font-size: 32px * root.scale;
-        font-weight: 700;
         overflow: elide;
     }
 
     Text {
         x: 12px * root.scale;
-        y: 96px * root.scale;
+        y: 42px * root.scale;
         width: parent.width - 24px * root.scale;
         height: 40px * root.scale;
         text: "Queue";
@@ -1571,7 +1589,7 @@ component QueuePanel inherits Rectangle {
 
     if root.entries.length == 0: Text {
         x: 12px * root.scale;
-        y: 150px * root.scale;
+        y: 104px * root.scale;
         width: parent.width - 24px * root.scale;
         text: "Nothing queued.";
         color: Palette.muted;
@@ -1579,7 +1597,7 @@ component QueuePanel inherits Rectangle {
     }
     ScrollView {
         x: 12px * root.scale;
-        y: 142px * root.scale;
+        y: 96px * root.scale;
         width: parent.width - 24px * root.scale;
         height: parent.height - self.y - 12px * root.scale;
         vertical-stretch: 1;
@@ -2193,6 +2211,7 @@ export component AppWindow inherits Window {
     callback queue-remove(int);
     callback save-settings(string, int, int, string, int, string, string, string, string, bool, string, int);
     callback cache-action(bool);
+    callback mute-toggled();
     callback shuffle-toggled();
     callback repeat-toggled();
     callback pick-settings-folder(string);
@@ -2358,7 +2377,7 @@ export component AppWindow inherits Window {
         background: Palette.sidebar;
         Text {
             x: 12px * root.design-scale;
-            y: -2px * root.design-scale;
+            y: 5px * root.design-scale;
             width: max(80px, parent.width - max(350px, 380px * root.design-scale) - 36px * root.design-scale);
             height: 54px * root.design-scale;
             text: root.now-playing-title;
@@ -2370,7 +2389,7 @@ export component AppWindow inherits Window {
 
         Text {
             x: 15px * root.design-scale;
-            y: 47px * root.design-scale;
+            y: 54px * root.design-scale;
             width: max(80px, parent.width - max(350px, 380px * root.design-scale) - 36px * root.design-scale);
             height: 32px * root.design-scale;
             text: root.now-playing-subtitle;
@@ -2385,10 +2404,13 @@ export component AppWindow inherits Window {
             width: max(350px, 380px * root.design-scale);
             height: 36px;
             spacing: 10px;
-            Image {
-                source: @image-url("../../../assets/design/search.svg");
-                width: 20px;
-                height: 20px;
+            IconButton {
+                icon: @image-url("../../../assets/design/search.svg");
+                label: "Search";
+                icon-size: 20px;
+                width: 24px;
+                height: 24px;
+                clicked => { search-input.focus(); }
             }
 
             Rectangle {
@@ -2412,6 +2434,14 @@ export component AppWindow inherits Window {
                 // The row is 36px tall; the icon button otherwise draws 44px.
                 height: 36px;
                 clicked => { root.queue-open = !root.queue-open; if (root.queue-open) { root.lyrics-open = false; } }
+            }
+
+            IconButton {
+                icon: @image-url("../../../assets/design/lyrics.svg");
+                label: "Lyrics";
+                active: root.lyrics-open;
+                height: 36px;
+                clicked => { root.lyrics-toggle(); }
             }
         }
     }
@@ -2439,7 +2469,7 @@ export component AppWindow inherits Window {
             position-label: root.position-label;
             duration-label: root.duration-label;
             volume <=> root.volume;
-            lyrics-open: root.lyrics-open;
+            muted: root.muted;
             shuffle: root.shuffle;
             repeat: root.repeat;
             // There is no separate player page in this shell: the queue rail is
@@ -2451,7 +2481,7 @@ export component AppWindow inherits Window {
             seek(ms) => { root.seek-requested(ms); }
             seeking(value) => { root.seeking = value; }
             volume-changed(value) => { root.volume-changed(value); }
-            lyrics-toggle => { root.lyrics-toggle(); }
+            mute => { root.mute-toggled(); }
             shuffle-toggle => { root.shuffle-toggled(); }
             repeat-toggle => { root.repeat-toggled(); }
         }
@@ -2502,7 +2532,7 @@ export component AppWindow inherits Window {
                 }
 
                 Rectangle {
-                    height: 159px * root.design-scale;
+                    height: 12px * root.design-scale;
                 }
 
                 NavItem {
@@ -2843,14 +2873,14 @@ export component AppWindow inherits Window {
                     }
 
                     Text {
-                        text: "Playback format";
+                        text: "Download format";
                         color: Palette.text;
                         font-size: 16px;
                         font-weight: 600;
                     }
 
                     Text {
-                        text: "Lossless prefers FLAC and WAV. Lossy never exceeds the ceiling below, and the ceiling is a maximum, never a target to re-encode up to.";
+                        text: "Applies to downloads and the cache, never to files already in your library. Lossless prefers FLAC and WAV. Lossy never exceeds the ceiling below, and the ceiling is a maximum, never a target to re-encode up to.";
                         color: Palette.muted;
                         font-size: 12px;
                         wrap: word-wrap;
