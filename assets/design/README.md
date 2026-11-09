@@ -1,6 +1,6 @@
 # Design asset provenance
 
-Extracted without redrawing from `FIGMA/sonora.fig` (108 decoded nodes):
+Extracted without redrawing from `assets/figma/sonora.fig` (108 decoded nodes):
 
 | File | Figma node |
 |---|---|

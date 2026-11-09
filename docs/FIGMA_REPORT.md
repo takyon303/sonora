@@ -2,7 +2,7 @@
 
 ## Source inspected
 
-`FIGMA/sonora.fig` was opened as a ZIP and its Kiwi canvas decoded with
+`assets/figma/sonora.fig` was opened as a ZIP and its Kiwi canvas decoded with
 `kiwi-schema` and `fzstd` in temporary tooling. It contains 108 nodes, seven
 raster assets, metadata and a 400×299 thumbnail. Two player frames are present:
 `2:5` (Frame 1) and `3:191` (Frame 2), both 1920×1080. A separate sketch image

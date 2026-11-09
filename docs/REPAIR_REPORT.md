@@ -2,7 +2,7 @@
 
 Baseline: `5fb95d0f5b4199eb950cd7c3c86b8ba172153b92`.
 
-The original checkout was clean apart from the supplied untracked `FIGMA/`.
+The original checkout was clean apart from the supplied untracked `assets/figma/sonora.fig`.
 The local repository and its existing remote were inspected; no prior AI diff,
 source archive, or alternate patched checkout was found. The reported previous
 fixes were therefore checked against the actual source and implemented here.

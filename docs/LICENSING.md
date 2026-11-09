@@ -32,7 +32,7 @@ compatible with every dependency below.
 
 The UI now depends on the existing internal `sonora-cache` crate, under the
 project's GPL-3.0-or-later licence. No new external Rust dependency was added.
-Seven vector components were extracted from the supplied `FIGMA/sonora.fig`;
+Seven vector components were extracted from the supplied `assets/figma/sonora.fig`;
 provenance is recorded in `assets/design/README.md`. The album images remain
 reference/test input and are not hardcoded into the application.
 
