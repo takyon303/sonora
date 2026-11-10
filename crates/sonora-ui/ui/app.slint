@@ -409,6 +409,7 @@ component NavItem inherits Rectangle {
     }
 
     background: root.active ? Palette.panel-hover : (touch.has-hover ? #1a1a1a : transparent);
+    animate background { duration: 120ms; easing: ease-out; }
 
     touch := TouchArea {
         clicked => {
@@ -491,6 +492,7 @@ component ActionButton inherits Rectangle {
     border-width: root.primary ? 0px : 1px;
     border-color: Palette.stroke;
     background: touch.has-hover ? (root.primary ? Palette.accent-hover : Palette.panel-hover) : (root.primary ? Palette.accent : Palette.panel);
+    animate background { duration: 120ms; easing: ease-out; }
 
     touch := TouchArea {
         clicked => {
@@ -591,6 +593,8 @@ component TrackRowItem inherits Rectangle {
     height: 56px;
     border-radius: 6px;
     background: touch.pressed || root.track.id == RowArtwork.current-track ? Palette.accent-soft : ((touch.has-hover || title-touch.has-hover || artist-touch.has-hover) ? Palette.panel-hover : transparent);
+    // Rows fade between resting, hovered and playing instead of popping.
+    animate background { duration: 120ms; easing: ease-out; }
     function activate() {
         if (RowArtwork.playback-available) {
             RowArtwork.current-track = root.track.id;
@@ -862,6 +866,7 @@ component PlaylistCard inherits Rectangle {
     height: 54px;
     border-radius: 8px;
     background: touch.has-hover ? Palette.panel-hover : Palette.panel;
+    animate background { duration: 120ms; easing: ease-out; }
 
     touch := TouchArea {
         clicked => {
@@ -1153,6 +1158,7 @@ component PlaylistPicker inherits Rectangle {
                         height: 40px;
                         border-radius: 6px;
                         background: pick-touch.has-hover ? Palette.panel-hover : transparent;
+                        animate background { duration: 120ms; easing: ease-out; }
 
                         HorizontalLayout {
                             padding-left: 12px;
@@ -1204,6 +1210,210 @@ component PlaylistPicker inherits Rectangle {
     }
 }
 
+// Tag editing: the library's own data, changed in the file it came from. Empty
+// fields remove that tag instead of storing a blank one, which is what the note
+// under the fields says, because it is the part people get wrong.
+component TagEditor inherits Rectangle {
+    in property <string> file-name: "";
+    in-out property <string> title-text: "";
+    in-out property <string> artist-text: "";
+    in-out property <string> album-text: "";
+    in-out property <string> album-artist-text: "";
+    in-out property <string> year-text: "";
+    in-out property <string> track-no-text: "";
+    in-out property <string> disc-no-text: "";
+    in property <string> status: "";
+    in property <bool> busy: false;
+
+    callback save();
+    callback dismissed();
+
+    Rectangle {
+        width: parent.width;
+        height: parent.height;
+        background: #000000;
+        opacity: 0.55;
+
+        TouchArea {
+            clicked => {
+                if (!root.busy) { root.dismissed(); }
+            }
+        }
+    }
+
+    Rectangle {
+        width: min(460px, parent.width - 48px);
+        height: min(parent.height - 80px, 520px);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        border-radius: 10px;
+        border-width: 1px;
+        border-color: Palette.stroke;
+        background: Palette.panel;
+
+        // Swallow clicks on the card's own empty space; only the scrim dismisses.
+        TouchArea {
+            clicked => {}
+        }
+
+        VerticalLayout {
+            padding: 18px;
+            spacing: 10px;
+
+            Text {
+                text: "Edit tags";
+                color: Palette.text;
+                font-size: 16px;
+                font-weight: 600;
+            }
+
+            Text {
+                text: root.file-name;
+                color: Palette.muted;
+                font-size: 11px;
+                overflow: elide;
+            }
+
+            ScrollView {
+                vertical-stretch: 1;
+                horizontal-scrollbar-policy: always-off;
+
+                VerticalLayout {
+                    alignment: start;
+                    spacing: 6px;
+
+                    Text {
+                        text: "Title";
+                        color: Palette.muted;
+                        font-size: 11px;
+                    }
+                    LineEdit {
+                        text <=> root.title-text;
+                        enabled: !root.busy;
+                    }
+
+                    Text {
+                        text: "Artist";
+                        color: Palette.muted;
+                        font-size: 11px;
+                    }
+                    LineEdit {
+                        text <=> root.artist-text;
+                        enabled: !root.busy;
+                    }
+
+                    Text {
+                        text: "Album";
+                        color: Palette.muted;
+                        font-size: 11px;
+                    }
+                    LineEdit {
+                        text <=> root.album-text;
+                        enabled: !root.busy;
+                    }
+
+                    Text {
+                        text: "Album artist";
+                        color: Palette.muted;
+                        font-size: 11px;
+                    }
+                    LineEdit {
+                        text <=> root.album-artist-text;
+                        enabled: !root.busy;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 10px;
+
+                        VerticalLayout {
+                            spacing: 6px;
+                            horizontal-stretch: 1;
+                            Text {
+                                text: "Year";
+                                color: Palette.muted;
+                                font-size: 11px;
+                            }
+                            LineEdit {
+                                text <=> root.year-text;
+                                input-type: number;
+                                enabled: !root.busy;
+                            }
+                        }
+
+                        VerticalLayout {
+                            spacing: 6px;
+                            horizontal-stretch: 1;
+                            Text {
+                                text: "Track";
+                                color: Palette.muted;
+                                font-size: 11px;
+                            }
+                            LineEdit {
+                                text <=> root.track-no-text;
+                                input-type: number;
+                                enabled: !root.busy;
+                            }
+                        }
+
+                        VerticalLayout {
+                            spacing: 6px;
+                            horizontal-stretch: 1;
+                            Text {
+                                text: "Disc";
+                                color: Palette.muted;
+                                font-size: 11px;
+                            }
+                            LineEdit {
+                                text <=> root.disc-no-text;
+                                input-type: number;
+                                enabled: !root.busy;
+                            }
+                        }
+                    }
+
+                }
+            }
+
+            Text {
+                text: "An empty field removes that tag. The file is rewritten in place; nothing is renamed.";
+                color: Palette.muted;
+                font-size: 11px;
+                wrap: word-wrap;
+            }
+
+            Text {
+                text: root.status;
+                color: root.status == "" ? Palette.muted : Palette.accent;
+                font-size: 11px;
+                wrap: word-wrap;
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
+
+                ActionButton {
+                    label: "Cancel";
+                    primary: false;
+                    clicked => {
+                        root.dismissed();
+                    }
+                }
+
+                ActionButton {
+                    label: root.busy ? "Saving…" : "Save";
+                    clicked => {
+                        root.save();
+                    }
+                }
+            }
+        }
+    }
+}
+
 component AlbumCard inherits Rectangle {
     in property <AlbumRow> album;
 
@@ -1213,6 +1423,7 @@ component AlbumCard inherits Rectangle {
     height: 78px;
     border-radius: 8px;
     background: touch.has-hover ? Palette.panel-hover : Palette.panel;
+    animate background { duration: 120ms; easing: ease-out; }
 
     // Opens the release; the artist line sits on top and opens the artist.
     touch := TouchArea {
@@ -1488,6 +1699,7 @@ component MenuRow inherits Rectangle {
     height: 44px;
     border-radius: 6px;
     background: touch.has-hover && root.enabled ? Palette.panel-hover : transparent;
+    animate background { duration: 120ms; easing: ease-out; }
 
     touch := TouchArea {
         enabled: root.enabled;
@@ -1531,6 +1743,7 @@ component TrackMenuDrawer inherits Rectangle {
     callback action-playlist();
     callback action-favourite(bool);
     callback action-rating(int);
+    callback action-metadata();
     callback action-remove();
 
     // Every action's live state comes straight from the row snapshot; the
@@ -1606,6 +1819,14 @@ component TrackMenuDrawer inherits Rectangle {
         if root.show-add: MenuRow {
             label: "Add to playlist…";
             clicked => { root.action-playlist(); }
+        }
+
+        // Tags are the library's own data, so editing one belongs where a
+        // listener already is: the row's menu. It is offered everywhere a
+        // track lives, including the queue.
+        MenuRow {
+            label: "Edit tags…";
+            clicked => { root.action-metadata(); }
         }
 
         MenuRow {
@@ -1723,6 +1944,7 @@ component QueuePanel inherits Rectangle {
                 height: 64px * root.scale;
                 border-radius: 8px;
                 background: drag-touch.has-hover ? Palette.panel-hover : Palette.panel;
+                animate background { duration: 120ms; easing: ease-out; }
 
                 drag-touch := TouchArea {
                     moved => {
@@ -1897,8 +2119,10 @@ component LyricsPanel inherits Rectangle {
             }
         }
 
-        ActionButton {
-            label: root.following ? "Following playback" : "Follow playback";
+        // Following is the normal state, so the control only shows up once the
+        // listener has scrolled away from the line playback is on.
+        if !root.following: ActionButton {
+            label: "Follow playback";
             primary: false;
             clicked => { root.following = true; root.follow(); }
         }
@@ -2327,6 +2551,24 @@ export component AppWindow inherits Window {
     in-out property <bool> menu-show-remove: false;
     in-out property <bool> menu-show-add: true;
 
+    // Tag editor. The values start as the file's current tags and are written
+    // back into that file; the track id is what the save is applied to.
+    in-out property <bool> tag-editor-open: false;
+    in-out property <int> tag-editor-track: 0;
+    in-out property <string> tag-editor-file: "";
+    in-out property <string> tag-editor-title: "";
+    in-out property <string> tag-editor-artist: "";
+    in-out property <string> tag-editor-album: "";
+    in-out property <string> tag-editor-album-artist: "";
+    in-out property <string> tag-editor-year: "";
+    in-out property <string> tag-editor-track-no: "";
+    in-out property <string> tag-editor-disc-no: "";
+    in-out property <string> tag-editor-status: "";
+    in-out property <bool> tag-editor-busy: false;
+    callback metadata-edit-requested(int);
+    callback tag-editor-save();
+    callback tag-editor-close();
+
     callback section-changed(string);
     callback search-changed(string);
     callback add-folder(string);
@@ -2580,7 +2822,9 @@ export component AppWindow inherits Window {
                 active: root.queue-open;
                 // The row is 36px tall; the icon button otherwise draws 44px.
                 height: 36px;
-                clicked => { root.queue-open = !root.queue-open; if (root.queue-open) { root.lyrics-open = false; } }
+                // The queue and the lyrics page share the window: the rail sits
+                // beside the page, so opening one does not close the other.
+                clicked => { root.queue-open = !root.queue-open; }
             }
 
             IconButton {
@@ -4038,6 +4282,7 @@ export component AppWindow inherits Window {
         action-playlist => { root.open-playlist-picker(root.menu-track.id, root.menu-track.title); root.menu-open = false; }
         action-favourite(liked) => { root.favourite-toggled(root.menu-track.id, liked); root.menu-open = false; }
         action-rating(value) => { root.rating-changed(root.menu-track.id, value); root.menu-open = false; }
+        action-metadata => { root.metadata-edit-requested(root.menu-track.id); root.menu-open = false; }
         action-remove => { root.playlist-track-remove(root.menu-track.id); root.menu-open = false; }
     }
     if root.settings-show-status: Text {
@@ -4175,6 +4420,26 @@ export component AppWindow inherits Window {
             }
         }
     }
+    if root.tag-editor-open: TagEditor {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+
+        file-name: root.tag-editor-file;
+        title-text <=> root.tag-editor-title;
+        artist-text <=> root.tag-editor-artist;
+        album-text <=> root.tag-editor-album;
+        album-artist-text <=> root.tag-editor-album-artist;
+        year-text <=> root.tag-editor-year;
+        track-no-text <=> root.tag-editor-track-no;
+        disc-no-text <=> root.tag-editor-disc-no;
+        status: root.tag-editor-status;
+        busy: root.tag-editor-busy;
+        save => { root.tag-editor-save(); }
+        dismissed => { root.tag-editor-close(); }
+    }
+
     if root.playlist-picker-open: PlaylistPicker {
         x: 0;
         y: 0;

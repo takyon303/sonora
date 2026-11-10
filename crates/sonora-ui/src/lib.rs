@@ -23,6 +23,7 @@ use sonora_core::{
 };
 use sonora_db::{AlbumSummary, Db, HistoryEntry, PlaylistSummary};
 use sonora_playback::{Engine, PlaybackState, Resolver};
+use sonora_scan::metadata::{self, TagEdit};
 use sonora_scan::Scanner;
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -935,6 +936,7 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
         (playback_timer, artwork)
     });
 
+    wire_tag_editor(&ui, &weak, &ctx, &handle, &lookup);
     listen_for_events(weak.clone(), ctx.events.subscribe(), handle.clone());
     refresh_all(weak.clone(), ctx.clone(), handle.clone(), lookup);
 
@@ -2391,6 +2393,203 @@ enum LyricsRequest {
     Complete { result: LyricsResult, at: Instant },
 }
 
+/// Read one numeric field of the tag form. An empty field means "remove this
+/// tag", so it is not an error; anything else has to be a whole number.
+fn tag_number(value: &str, label: &str) -> std::result::Result<Option<u32>, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    value
+        .parse::<u32>()
+        .map(Some)
+        .map_err(|_| format!("{label} must be a whole number."))
+}
+
+/// Turn the form's text into the edit to write, or explain what is wrong.
+fn tag_edit_from_ui(ui: &AppWindow) -> std::result::Result<TagEdit, String> {
+    let year = match tag_number(&ui.get_tag_editor_year(), "Year")? {
+        Some(year) if year <= 9999 => Some(year as u16),
+        Some(_) => return Err("Year must be between 1 and 9999.".to_string()),
+        None => None,
+    };
+    Ok(TagEdit {
+        title: ui.get_tag_editor_title().to_string(),
+        artist: ui.get_tag_editor_artist().to_string(),
+        album: ui.get_tag_editor_album().to_string(),
+        album_artist: ui.get_tag_editor_album_artist().to_string(),
+        year,
+        track_no: tag_number(&ui.get_tag_editor_track_no(), "Track")?,
+        disc_no: tag_number(&ui.get_tag_editor_disc_no(), "Disc")?,
+    })
+}
+
+/// Tag editing: the row menu fills a form from the track, and saving writes the
+/// values into that file, reads the file back and re-indexes the row from what
+/// the file actually stored.
+fn wire_tag_editor(
+    ui: &AppWindow,
+    weak: &Weak<AppWindow>,
+    ctx: &Arc<AppContext>,
+    handle: &Handle,
+    lookup: &Arc<Mutex<TrackLookup>>,
+) {
+    {
+        let weak = weak.clone();
+        let db = ctx.db.clone();
+        let handle = handle.clone();
+        ui.on_metadata_edit_requested(move |id| {
+            let weak = weak.clone();
+            let db = db.clone();
+            let handle = handle.clone();
+            handle.spawn(async move {
+                let track = match db.track(id as TrackId).await {
+                    Ok(Some(track)) => track,
+                    Ok(None) => {
+                        set_status(&weak, "That track is no longer in the library.");
+                        return;
+                    }
+                    Err(err) => {
+                        log::error!("could not load tags for editing: {err}");
+                        set_status(&weak, "Could not read that track's tags.");
+                        return;
+                    }
+                };
+                let _ = weak.upgrade_in_event_loop(move |ui| {
+                    let file = track
+                        .path
+                        .file_name()
+                        .map(|name| name.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    ui.set_tag_editor_track(id);
+                    ui.set_tag_editor_file(file.into());
+                    ui.set_tag_editor_title(track.title.clone().into());
+                    ui.set_tag_editor_artist(track.artist.clone().unwrap_or_default().into());
+                    ui.set_tag_editor_album(track.album.clone().unwrap_or_default().into());
+                    ui.set_tag_editor_album_artist(
+                        track.album_artist.clone().unwrap_or_default().into(),
+                    );
+                    ui.set_tag_editor_year(
+                        track.year.map(|v| v.to_string()).unwrap_or_default().into(),
+                    );
+                    ui.set_tag_editor_track_no(
+                        track
+                            .track_no
+                            .map(|v| v.to_string())
+                            .unwrap_or_default()
+                            .into(),
+                    );
+                    ui.set_tag_editor_disc_no(
+                        track
+                            .disc_no
+                            .map(|v| v.to_string())
+                            .unwrap_or_default()
+                            .into(),
+                    );
+                    ui.set_tag_editor_status("".into());
+                    ui.set_tag_editor_busy(false);
+                    ui.set_tag_editor_open(true);
+                });
+            });
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let ctx = ctx.clone();
+        let handle = handle.clone();
+        let lookup = lookup.clone();
+        ui.on_tag_editor_save(move || {
+            let Some(window) = weak.upgrade() else {
+                return;
+            };
+            let id = window.get_tag_editor_track() as TrackId;
+            let edit = match tag_edit_from_ui(&window) {
+                Ok(edit) => edit,
+                Err(message) => {
+                    window.set_tag_editor_status(message.into());
+                    return;
+                }
+            };
+            // The lookup already knows which file the row is; asking the model
+            // again would only risk an edit landing on the wrong file.
+            let path = lock(&lookup).paths.get(&id).cloned();
+            let Some(path) = path else {
+                window.set_tag_editor_status("That file is no longer in the library.".into());
+                return;
+            };
+
+            window.set_tag_editor_busy(true);
+            window.set_tag_editor_status("Writing tags…".into());
+
+            let weak = weak.clone();
+            let ctx = ctx.clone();
+            let refresh_handle = handle.clone();
+            let lookup = lookup.clone();
+            handle.spawn(async move {
+                // Writing and re-reading the file are blocking calls, so they stay
+                // off the UI thread and off the reactor.
+                let written = tokio::task::spawn_blocking(move || -> sonora_core::Result<_> {
+                    metadata::write(&path, &edit)?;
+                    metadata::extract(&path)
+                })
+                .await;
+                let scanned = match written {
+                    Ok(Ok(scanned)) => scanned,
+                    Ok(Err(err)) => {
+                        let message = format!("Could not write the tags: {err}");
+                        let _ = weak.upgrade_in_event_loop(move |ui| {
+                            ui.set_tag_editor_busy(false);
+                            ui.set_tag_editor_status(message.into());
+                        });
+                        return;
+                    }
+                    Err(err) => {
+                        log::error!("tag writing task failed: {err}");
+                        let _ = weak.upgrade_in_event_loop(|ui| {
+                            ui.set_tag_editor_busy(false);
+                            ui.set_tag_editor_status("Could not write the tags.".into());
+                        });
+                        return;
+                    }
+                };
+
+                match ctx.db.apply_tag_edit(id, &scanned).await {
+                    Ok(()) => {
+                        let title = scanned.title.clone();
+                        let _ = weak.upgrade_in_event_loop(|ui| {
+                            ui.set_tag_editor_busy(false);
+                            ui.set_tag_editor_open(false);
+                        });
+                        set_status(&weak, format!("Saved tags for {title}"));
+                        let refresh_weak = weak.clone();
+                        let refresh_ctx = ctx.clone();
+                        let refresh_lookup = lookup.clone();
+                        refresh_all(refresh_weak, refresh_ctx, refresh_handle, refresh_lookup);
+                    }
+                    Err(err) => {
+                        log::error!("could not re-index the edited track: {err}");
+                        let message = format!(
+                            "Tags were written, but the library could not be updated: {err}"
+                        );
+                        let _ = weak.upgrade_in_event_loop(move |ui| {
+                            ui.set_tag_editor_busy(false);
+                            ui.set_tag_editor_status(message.into());
+                        });
+                    }
+                }
+            });
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        ui.on_tag_editor_close(move || {
+            let _ = weak.upgrade_in_event_loop(|ui| ui.set_tag_editor_open(false));
+        });
+    }
+}
+
 #[derive(Clone)]
 struct LyricsResult {
     plain: String,
@@ -2416,7 +2615,8 @@ fn wire_lyrics(
         if !open {
             return;
         }
-        window.set_queue_open(false);
+        // The queue rail stays usable beside the lyrics page; it is not a
+        // different view of the same space.
         match engine.current() {
             Some(track) => load_lyrics(&weak, &db, &handle, track, loader.clone()),
             None => {
@@ -3291,6 +3491,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn tag_numbers_are_whole_and_an_empty_field_means_remove() {
+        assert_eq!(tag_number("", "Year").unwrap(), None);
+        assert_eq!(tag_number("   ", "Track").unwrap(), None);
+        assert_eq!(tag_number(" 12 ", "Track").unwrap(), Some(12));
+        let error = tag_number("nineteen", "Year").unwrap_err();
+        assert!(error.contains("Year"), "{error}");
+        assert!(tag_number("-1", "Disc").is_err());
+        assert!(tag_number("2.5", "Track").is_err());
+    }
+
+    #[test]
     fn album_cards_borrow_the_release_art() {
         let mut album = AlbumSummary {
             id: 4,
@@ -3761,6 +3972,15 @@ mod interaction_tests {
         );
         ui.set_lyric_active(61);
         assert!(!ui.get_lyrics_following());
+
+        // The queue rail and the lyrics page share the window: opening one is
+        // not a reason to close the other.
+        click(&ui, 1816.0, 55.0);
+        assert!(ui.get_queue_open(), "the queue button must open the rail");
+        assert!(
+            ui.get_lyrics_open(),
+            "opening the queue must not close the lyrics page"
+        );
 
         ui.set_lyrics_open(false);
         ui.set_queue_open(true);

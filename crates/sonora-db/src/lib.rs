@@ -1076,44 +1076,70 @@ impl Db {
             };
 
             // Genres and the search index are cheap to rebuild per track.
-            sqlx::query("DELETE FROM track_genres WHERE track_id = ?1")
-                .bind(track_id)
-                .execute(&mut *tx)
-                .await
-                .db()?;
-            for genre in &track.genres {
-                let genre_id = get_or_create_genre(&mut tx, genre).await?;
-                sqlx::query(
-                    "INSERT OR IGNORE INTO track_genres (track_id, genre_id) VALUES (?1, ?2)",
-                )
-                .bind(track_id)
-                .bind(genre_id)
-                .execute(&mut *tx)
-                .await
-                .db()?;
-            }
-
-            sqlx::query("DELETE FROM tracks_fts WHERE rowid = ?1")
-                .bind(track_id)
-                .execute(&mut *tx)
-                .await
-                .db()?;
-            sqlx::query(
-                "INSERT INTO tracks_fts (rowid, title, artist, album, album_artist)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-            )
-            .bind(track_id)
-            .bind(&track.title)
-            .bind(track.artist.as_deref().unwrap_or(""))
-            .bind(track.album.as_deref().unwrap_or(""))
-            .bind(&album_artist_name)
-            .execute(&mut *tx)
-            .await
-            .db()?;
+            refresh_track_derived(&mut tx, track_id, track, &album_artist_name).await?;
         }
 
         tx.commit().await.db()?;
         Ok(outcomes)
+    }
+
+    /// Re-index one track after its tags were edited by hand.
+    ///
+    /// The file is the source of truth: the caller writes the tags, reads the
+    /// file back and hands the fresh [`ScannedTrack`] here. The row keeps its
+    /// identity, play counts and rating; only tag-derived columns, genres and
+    /// the search entry are replaced. `track.path` must still be the row's own
+    /// file, which is what keeps an edit from overwriting another track.
+    pub async fn apply_tag_edit(&self, id: TrackId, track: &ScannedTrack) -> Result<()> {
+        let mut tx = self.pool.begin().await.db()?;
+        let row = sqlx::query("SELECT path, folder_id, last_seen_scan FROM tracks WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await
+            .db()?;
+        let Some(row) = row else {
+            return Err(Error::Other(
+                "that track is no longer in the library".to_string(),
+            ));
+        };
+        let path: String = row.get("path");
+        if Path::new(&path) != track.path {
+            return Err(Error::Other(
+                "the edited file does not belong to this track".to_string(),
+            ));
+        }
+        let folder_id: FolderId = row.get("folder_id");
+        // The scan run stays what it was: an edit is not a scan, so it must not
+        // look like this file was touched by the latest walk.
+        let run_id: i64 = row.get("last_seen_scan");
+
+        let artist_id = match track.artist.as_deref() {
+            Some(name) => Some(get_or_create_artist(&mut tx, name).await?),
+            None => None,
+        };
+        let album_artist_name = track
+            .effective_album_artist()
+            .unwrap_or("Unknown Artist")
+            .to_string();
+        let album_artist_id = get_or_create_artist(&mut tx, &album_artist_name).await?;
+        let album_id = if track.album.is_some() {
+            Some(
+                get_or_create_album(
+                    &mut tx,
+                    track.effective_album(),
+                    album_artist_id,
+                    track.year,
+                )
+                .await?,
+            )
+        } else {
+            None
+        };
+
+        update_track(&mut tx, id, run_id, folder_id, track, artist_id, album_id).await?;
+        refresh_track_derived(&mut tx, id, track, &album_artist_name).await?;
+        tx.commit().await.db()?;
+        Ok(())
     }
 
     /// Delete rows for this folder that the latest scan did not touch, then
@@ -1660,6 +1686,50 @@ async fn insert_track(
     Ok(result.last_insert_rowid())
 }
 
+/// Rebuild the parts of a track's indexing that follow from its tags: the
+/// genre links and the search row. Both are cheap enough to rewrite per track,
+/// and rewriting them is what keeps an edit searchable straight away.
+async fn refresh_track_derived(
+    conn: &mut SqliteConnection,
+    track_id: TrackId,
+    track: &ScannedTrack,
+    album_artist_name: &str,
+) -> Result<()> {
+    sqlx::query("DELETE FROM track_genres WHERE track_id = ?1")
+        .bind(track_id)
+        .execute(&mut *conn)
+        .await
+        .db()?;
+    for genre in &track.genres {
+        let genre_id = get_or_create_genre(conn, genre).await?;
+        sqlx::query("INSERT OR IGNORE INTO track_genres (track_id, genre_id) VALUES (?1, ?2)")
+            .bind(track_id)
+            .bind(genre_id)
+            .execute(&mut *conn)
+            .await
+            .db()?;
+    }
+
+    sqlx::query("DELETE FROM tracks_fts WHERE rowid = ?1")
+        .bind(track_id)
+        .execute(&mut *conn)
+        .await
+        .db()?;
+    sqlx::query(
+        "INSERT INTO tracks_fts (rowid, title, artist, album, album_artist)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+    )
+    .bind(track_id)
+    .bind(&track.title)
+    .bind(track.artist.as_deref().unwrap_or(""))
+    .bind(track.album.as_deref().unwrap_or(""))
+    .bind(album_artist_name)
+    .execute(&mut *conn)
+    .await
+    .db()?;
+    Ok(())
+}
+
 async fn update_track(
     conn: &mut SqliteConnection,
     id: i64,
@@ -1787,6 +1857,52 @@ mod tests {
         assert_eq!(stored.replay_gain_album_peak, Some(0.75));
         // The engine applies the track gain when a file carries both values.
         assert_eq!(stored.effective_replay_gain_db(), Some(-6.25));
+    }
+
+    #[tokio::test]
+    async fn a_tag_edit_rewrites_the_tags_and_keeps_the_listening_data() {
+        let db = Db::open_in_memory().await.unwrap();
+        let folder = db.add_folder(Path::new("/music")).await.unwrap();
+        let run = db.begin_scan().await.unwrap();
+        let mut original = track("/music/1.mp3", "Xtal", "Aphex Twin", "SAW 85-92");
+        original.track_no = Some(1);
+        let id = match db
+            .upsert_scanned(folder, run, std::slice::from_ref(&original))
+            .await
+            .unwrap()[0]
+        {
+            UpsertOutcome::Imported(id) => id,
+            other => panic!("expected an import, got {other:?}"),
+        };
+        db.set_rating(id, 4).await.unwrap();
+        db.set_favourite(id, true).await.unwrap();
+
+        // The caller writes the file, then hands back what the file now says.
+        let mut edited = original.clone();
+        edited.title = "Xtal (Edit)".to_string();
+        edited.artist = Some("Aphex Twin & Friends".to_string());
+        edited.album = Some("Selected Ambient Works".to_string());
+        edited.year = Some(1992);
+        db.apply_tag_edit(id, &edited).await.unwrap();
+
+        let stored = db.track(id).await.unwrap().unwrap();
+        assert_eq!(stored.title, "Xtal (Edit)");
+        assert_eq!(stored.artist.as_deref(), Some("Aphex Twin & Friends"));
+        assert_eq!(stored.album.as_deref(), Some("Selected Ambient Works"));
+        assert_eq!(stored.year, Some(1992));
+        // A retag is not a new track: the stars and the play counts stay.
+        assert_eq!(stored.rating, 4);
+        assert!(stored.favourite);
+
+        // The search index follows the edit immediately.
+        let found = db.search("edit", 10).await.unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].id, id);
+
+        // An edit that names another file must not touch this row.
+        let mut wrong = edited.clone();
+        wrong.path = PathBuf::from("/music/2.mp3");
+        assert!(db.apply_tag_edit(id, &wrong).await.is_err());
     }
 
     #[tokio::test]

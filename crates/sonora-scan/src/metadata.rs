@@ -1,15 +1,21 @@
-//! Tag reading with `lofty`.
+//! Tag reading and writing with `lofty`.
 //!
 //! Sonora treats tags as the source of truth and only falls back to file names
-//! for the fields a file genuinely lacks. Nothing here writes to the file; tag
-//! editing lives in `sonora-metadata` (phase 3).
+//! for the fields a file genuinely lacks. Reading and writing live together
+//! because they must agree on what a tag means: an edit is written, then read
+//! back through [`extract`], so only what the file actually stores reaches the
+//! library.
 
+use std::fs::OpenOptions;
 use std::path::Path;
 use std::time::UNIX_EPOCH;
 
+use lofty::config::WriteOptions;
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::prelude::{Accessor, ItemKey};
 use lofty::probe::Probe;
+use lofty::tag::items::Timestamp;
+use lofty::tag::Tag;
 use sonora_core::{
     parse_artist_title, without_extension, AudioFormat, Error, Result, ScannedTrack,
 };
@@ -113,6 +119,93 @@ pub fn extract(path: &Path) -> Result<ScannedTrack> {
         replay_gain_track_peak,
         replay_gain_album_peak,
     })
+}
+
+/// The tag values a person edited by hand.
+///
+/// Every text field is what the field should say afterwards: an empty string
+/// means the tag is dropped, not blanked, so clearing a title leaves the file
+/// with a title fallback from its name instead of an empty frame. Number
+/// fields follow the same rule with `None`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TagEdit {
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub album_artist: String,
+    pub year: Option<u16>,
+    pub track_no: Option<u32>,
+    pub disc_no: Option<u32>,
+}
+
+/// Write [`TagEdit`] into one file's primary tag.
+///
+/// The file is opened read-write and updated in place; nothing is renamed and
+/// no audio data is touched. A format whose primary tag cannot be written
+/// reports an error instead of silently dropping the edit, and callers re-read
+/// the file afterwards so the library reflects what was stored.
+pub fn write(path: &Path, edit: &TagEdit) -> Result<()> {
+    let mut tagged = Probe::open(path)
+        .map_err(|err| Error::metadata(path, err.to_string()))?
+        .read()
+        .map_err(|err| Error::metadata(path, err.to_string()))?;
+
+    if tagged.primary_tag_mut().is_none() {
+        // A file with no tag at all is common for rips; give it the tag type its
+        // container expects rather than failing the edit.
+        let tag_type = tagged.file_type().primary_tag_type();
+        tagged.insert_tag(Tag::new(tag_type));
+    }
+    let tag = tagged
+        .primary_tag_mut()
+        .ok_or_else(|| Error::metadata(path, "this file has no writable tag"))?;
+
+    set_text(tag, &edit.title, Tag::set_title, Tag::remove_title);
+    set_text(tag, &edit.artist, Tag::set_artist, Tag::remove_artist);
+    set_text(tag, &edit.album, Tag::set_album, Tag::remove_album);
+
+    let album_artist = edit.album_artist.trim();
+    if album_artist.is_empty() {
+        tag.remove_key(ItemKey::AlbumArtist);
+    } else {
+        tag.insert_text(ItemKey::AlbumArtist, album_artist.to_string());
+    }
+
+    match edit.year {
+        Some(year) => tag.set_date(Timestamp {
+            year,
+            ..Default::default()
+        }),
+        None => tag.remove_date(),
+    }
+    match edit.track_no {
+        Some(track) => tag.set_track(track),
+        None => tag.remove_track(),
+    }
+    match edit.disc_no {
+        Some(disc) => tag.set_disk(disc),
+        None => tag.remove_disk(),
+    }
+
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .map_err(|err| Error::io(path, err))?;
+    tagged
+        .save_to(&mut file, WriteOptions::default())
+        .map_err(|err| Error::metadata(path, err.to_string()))?;
+    Ok(())
+}
+
+/// Set a text tag, or remove it when the field was left empty.
+fn set_text(tag: &mut Tag, value: &str, set: fn(&mut Tag, String), remove: fn(&mut Tag)) {
+    let value = value.trim();
+    if value.is_empty() {
+        remove(tag);
+    } else {
+        set(tag, value.to_string());
+    }
 }
 
 /// Parse a ReplayGain tag value.

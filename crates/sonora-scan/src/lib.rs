@@ -306,6 +306,70 @@ mod tests {
         file.write_all(&vec![0u8; data_len as usize]).unwrap();
     }
 
+    #[test]
+    fn writes_tags_into_the_file_and_reads_them_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Artist - First.wav");
+        write_wav(&path, 1);
+
+        metadata::write(
+            &path,
+            &metadata::TagEdit {
+                title: "  Xtal ".to_string(),
+                artist: "Aphex Twin".to_string(),
+                album: "Selected Ambient Works".to_string(),
+                album_artist: "Aphex Twin".to_string(),
+                year: Some(1992),
+                track_no: Some(3),
+                disc_no: Some(1),
+            },
+        )
+        .unwrap();
+
+        let stored = metadata::extract(&path).unwrap();
+        assert_eq!(stored.title, "Xtal");
+        assert_eq!(stored.artist.as_deref(), Some("Aphex Twin"));
+        assert_eq!(stored.album.as_deref(), Some("Selected Ambient Works"));
+        assert_eq!(stored.album_artist.as_deref(), Some("Aphex Twin"));
+        assert_eq!(stored.year, Some(1992));
+        assert_eq!(stored.track_no, Some(3));
+        assert_eq!(stored.disc_no, Some(1));
+    }
+
+    #[test]
+    fn an_emptied_tag_field_is_removed_rather_than_blanked() {
+        let dir = tempfile::tempdir().unwrap();
+        // The name carries no artist, so clearing the tag cannot fall back to one.
+        let path = dir.path().join("02 - Second.wav");
+        write_wav(&path, 1);
+
+        metadata::write(
+            &path,
+            &metadata::TagEdit {
+                artist: "Aphex Twin".to_string(),
+                album: "SAW".to_string(),
+                year: Some(1992),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        metadata::write(
+            &path,
+            &metadata::TagEdit {
+                title: "Second".to_string(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let stored = metadata::extract(&path).unwrap();
+        assert_eq!(stored.title, "Second");
+        assert_eq!(stored.artist, None);
+        assert_eq!(stored.album, None);
+        assert_eq!(stored.year, None);
+    }
+
     #[tokio::test]
     async fn scans_a_folder_and_is_incremental() {
         let dir = tempfile::tempdir().unwrap();

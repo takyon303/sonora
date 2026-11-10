@@ -93,6 +93,12 @@ Delivered:
   never replaces an existing cover without approval, blake3 content-addressed
   store, batch report.
 
+- Tag editing: a track's menu opens a form with title, artist, album, album
+  artist, year, track and disc. Saving writes those tags into the file itself,
+  reads it back and re-indexes the row, so only what the format actually stored
+  reaches the library; an emptied field removes that tag, and the file is never
+  renamed or copied. Ratings, play counts and favourites survive an edit.
+
 Still open:
 
 - Candidate review UI, embedded artwork writing, Rockbox layout.
@@ -120,8 +126,9 @@ Delivered:
   lines, highlights the current one from the transport clock and eases it into
   view, for LRCLIB results and local `.lrc` files alike. The pane is its own
   page over an opaque backdrop, so the library view behind it never shows
-  through. Manual scrolling suspends following until the listener presses
-  Follow playback.
+  through. Manual scrolling suspends following; the Follow playback control
+  appears only while following is off, and the queue rail can be opened beside
+  the page instead of replacing it.
 
 Still open:
 
