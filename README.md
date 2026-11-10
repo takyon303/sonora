@@ -11,6 +11,8 @@ linux development is currently stalled cuz i currently dont have anybody whos wi
 >
 > [track the status](#status) [or commit history](/commits/main/)
 
+<img width="1920" height="1080" src="https://github.com/user-attachments/assets/77d3a20e-67e6-4013-956e-da768ecfd641" />
+
 # this is *sonora,* your new home for all things music.
 
 an attempt at bringing your entire music experience together in one place without having to juggle a billion different applications to do so.
