@@ -1463,6 +1463,33 @@ component SidebarPlayer inherits Rectangle {
     }
 }
 
+component MenuRow inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    height: 44px;
+    border-radius: 6px;
+    background: touch.has-hover && root.enabled ? Palette.panel-hover : transparent;
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+
+    Text {
+        x: 12px;
+        width: parent.width - 24px;
+        height: parent.height;
+        text: root.label;
+        color: root.enabled ? Palette.text : Palette.muted;
+        font-size: 14px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
 // Mobile-app style drawer with the track actions. Revealed by right-clicking
 // a row, or by holding one; on wide windows it slides from the right edge like
 // the queue rail, on portrait windows it becomes a full-width bottom sheet.
@@ -1586,33 +1613,6 @@ component TrackMenuDrawer inherits Rectangle {
                 }
             }
         }
-    }
-}
-
-component MenuRow inherits Rectangle {
-    in property <string> label;
-    in property <bool> enabled: true;
-    callback clicked();
-
-    height: 44px;
-    border-radius: 6px;
-    background: touch.has-hover && root.enabled ? Palette.panel-hover : transparent;
-
-    touch := TouchArea {
-        enabled: root.enabled;
-        mouse-cursor: Pointing;
-        clicked => { root.clicked(); }
-    }
-
-    Text {
-        x: 12px;
-        width: parent.width - 24px;
-        height: parent.height;
-        text: root.label;
-        color: root.enabled ? Palette.text : Palette.muted;
-        font-size: 14px;
-        vertical-alignment: center;
-        overflow: elide;
     }
 }
 

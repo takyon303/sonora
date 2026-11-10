@@ -920,9 +920,7 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
     let _timers = playback.clone().map(|playback| {
         let playback_timer = attach_playback(
             &ui,
-            weak.clone(),
             playback.clone(),
-            lookup.clone(),
             ctx.db.clone(),
             handle.clone(),
             timed_lyrics.clone(),
@@ -1027,14 +1025,15 @@ fn build_engine(lookup: &Arc<Mutex<TrackLookup>>) -> Option<Arc<Engine>> {
 
 fn attach_playback(
     ui: &AppWindow,
-    weak: Weak<AppWindow>,
     playback: PlaybackHandle,
-    lookup: Arc<Mutex<TrackLookup>>,
     db: Db,
     handle: Handle,
     timed: LyricsLoader,
     menu_suppress: Rc<Cell<bool>>,
 ) -> Timer {
+    // The handle already carries these two, so the callers do not pass copies.
+    let weak = playback.weak.clone();
+    let lookup = playback.lookup.clone();
     let engine = playback.engine.clone();
     {
         // The drawer opens from a long press; the release that follows must
@@ -1057,12 +1056,14 @@ fn attach_playback(
 
         {
             let weak = weak.clone();
+            let press_gen = press_generation.clone();
+            let suppress_hold = menu_suppress.clone();
             ui.on_press_armed(move |track, show_remove, show_add| {
-                let gen = press_generation.get() + 1;
-                press_generation.set(gen);
+                let gen = press_gen.get() + 1;
+                press_gen.set(gen);
                 let weak = weak.clone();
-                let generation = press_generation.clone();
-                let suppress = menu_suppress.clone();
+                let generation = press_gen.clone();
+                let suppress = suppress_hold.clone();
                 Timer::single_shot(Duration::from_millis(550), move || {
                     if generation.get() != gen {
                         // The finger lifted before the hold completed.
@@ -1967,12 +1968,11 @@ fn wire_playlists(
             let lookup = lookup.clone();
             let weak = weak.clone();
             let suppress_click = menu_suppress.clone();
-            let engine = playback.as_ref().map(|p| p.engine.clone());
+            let engine = playback.engine.clone();
             ui.on_playlist_track_activated(move |id| {
                 if suppress_click.replace(false) {
                     let current = engine
-                        .as_ref()
-                        .and_then(|engine| engine.current())
+                        .current()
                         .map_or(0, |t| saturating_i32(t.max(0) as u64));
                     let _ = weak.upgrade_in_event_loop(move |ui| {
                         ui.global::<RowArtwork>().set_current_track(current);

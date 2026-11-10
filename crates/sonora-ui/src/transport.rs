@@ -7,8 +7,8 @@ pub(super) struct PlaybackHandle {
     pub engine: Arc<Engine>,
     sender: Sender<Command>,
     latest_play: Arc<AtomicU64>,
-    weak: Weak<AppWindow>,
-    lookup: Arc<Mutex<TrackLookup>>,
+    pub(super) weak: Weak<AppWindow>,
+    pub(super) lookup: Arc<Mutex<TrackLookup>>,
 }
 
 enum Command {
