@@ -1499,6 +1499,16 @@ component TrackMenuDrawer inherits Rectangle {
     in property <bool> show-add: true;
     in property <bool> playback-available: true;
 
+    // The sheet paints its own surface: a translucent sheet over the page let
+    // the library rows show through the labels. The blurred cover keeps the
+    // text readable without going flat black.
+    in property <image> backdrop-texture;
+    in property <image> previous-backdrop-texture;
+    in property <float> art-blend: 1;
+    in property <bool> blur-active: true;
+    in property <length> canvas-width: 0px;
+    in property <length> canvas-height: 0px;
+
     callback action-play-next();
     callback action-enqueue();
     callback action-playlist();
@@ -1511,7 +1521,25 @@ component TrackMenuDrawer inherits Rectangle {
 
     height: menu-col.preferred-height;
     border-radius: Palette.panel-radius;
-    background: Palette.sidebar;
+    border-width: 1px;
+    border-color: Palette.stroke;
+    background: transparent;
+
+    PanelBackdrop {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        scene-x: self.absolute-position.x;
+        scene-y: self.absolute-position.y;
+        canvas-width: root.canvas-width;
+        canvas-height: root.canvas-height;
+        border-radius: Palette.panel-radius;
+        active: root.blur-active;
+        texture: root.backdrop-texture;
+        previous-texture: root.previous-backdrop-texture;
+        blend: root.art-blend;
+    }
 
     menu-col := VerticalLayout {
         alignment: start;
@@ -1782,11 +1810,18 @@ component LyricsPanel inherits Rectangle {
     shield := TouchArea {
     }
 
-    // Background removed to be consistent with other pages.
     // The page fills the content area; the shield ensures clicks don't
     // reach elements behind it.
     in-out property <bool> following: true;
+    // The pane eases to the new line instead of snapping to it: `auto-y` is
+    // the target and every animation step is copied into the scroll view, so a
+    // drag still moves the list directly and only drops follow mode.
     property <length> auto-y: 0px;
+    animate auto-y {
+        duration: 280ms;
+        easing: ease-in-out;
+    }
+    changed auto-y => { lyrics-view.content-y = root.auto-y; }
 
     // Keep the line playback reached in view. Slint has no query for the position
     // of one repeated child, so the active row reports its own offset and the pane
@@ -1810,16 +1845,14 @@ component LyricsPanel inherits Rectangle {
             min(
                 root.active-line-y - (lyrics-view.height - root.active-line-height) / 3,
                 lyrics-view.content-height - lyrics-view.height));
-        lyrics-view.content-y = root.auto-y;
     }
 
-    changed lines => { root.following = true; root.auto-y = 0px; lyrics-view.content-y = 0px; }
+    changed lines => { root.following = true; root.auto-y = 0px; }
 
     // A lyric that starts over, or goes away, begins at the top again.
     changed active => {
         if (active < 0) {
             root.auto-y = 0px;
-            lyrics-view.content-y = 0;
         }
     }
 
@@ -1889,6 +1922,8 @@ component LyricsPanel inherits Rectangle {
                         font-size: synced ? (current ? 30px : 22px) : 18px;
                         font-weight: synced && current ? 700 : 400;
                         wrap: word-wrap;
+                        animate color { duration: 220ms; easing: ease-out; }
+                        animate font-size { duration: 220ms; easing: ease-out; }
                         changed y => { root.follow-line(index, self.y, self.height); }
                         changed current => { root.follow-line(index, self.y, self.height); }
                     }
@@ -3897,12 +3932,31 @@ export component AppWindow inherits Window {
         }
     }
 
-    // Lyrics take the whole content area rather than a side rail.
+    // Lyrics are their own page: the pane paints an opaque, blurred surface so
+    // the library page behind it cannot bleed through the lines.
     if root.lyrics-open: Rectangle {
         x: 0px;
         y: root.content-top;
         width: root.width;
         height: root.height - self.y - 33px * root.design-scale;
+        border-radius: Palette.panel-radius * root.design-scale;
+        clip: true;
+
+        PanelBackdrop {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            scene-x: self.absolute-position.x;
+            scene-y: self.absolute-position.y;
+            canvas-width: root.width;
+            canvas-height: root.height;
+            border-radius: Palette.panel-radius * root.design-scale;
+            active: root.settings-blur-panels && root.settings-cover-background;
+            texture: root.panel-backdrop;
+            previous-texture: root.previous-panel-backdrop;
+            blend: root.art-blend;
+        }
 
         LyricsPanel {
             x: 0px;
@@ -3932,21 +3986,30 @@ export component AppWindow inherits Window {
         open-artist(id, name) => { root.open-artist(id, name); }
     }
 
-    // The track drawer sits above everything else. A shield behind it closes
-    // it on the first click or tap outside, like a mobile sheet.
-    if root.menu-open: TouchArea {
+    // The track menu is a centred dialog above everything else. The scrim
+    // dims the page behind it and closes it on the first click or tap outside.
+    if root.menu-open: Rectangle {
         x: 0px;
         y: 0px;
         width: root.width;
         height: root.height;
-        clicked => { root.menu-open = false; }
+        background: #00000066;
+
+        TouchArea {
+            clicked => { root.menu-open = false; }
+        }
     }
 
     if root.menu-open: TrackMenuDrawer {
-        property <bool> portrait: root.height > root.width;
-        x: portrait ? 0px : root.width - self.width - 10px * root.design-scale;
-        y: portrait ? root.height - self.height - 10px * root.design-scale : root.content-top;
-        width: portrait ? root.width : min(320px * root.design-scale, root.width - root.side-width - 20px * root.design-scale);
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+        width: min(320px * root.design-scale, root.width - 32px * root.design-scale);
+        canvas-width: root.width;
+        canvas-height: root.height;
+        blur-active: root.settings-blur-panels && root.settings-cover-background;
+        backdrop-texture: root.panel-backdrop;
+        previous-backdrop-texture: root.previous-panel-backdrop;
+        art-blend: root.art-blend;
         track: root.menu-track;
         show-remove: root.menu-show-remove;
         show-add: root.menu-show-add;

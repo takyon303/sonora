@@ -3677,23 +3677,31 @@ mod interaction_tests {
                 .collect(),
         ));
         ui.set_lyric_active(60);
-        window.draw_if_needed(|renderer| {
-            renderer.render(&mut pixels, 1920);
-        });
-        window.draw_if_needed(|renderer| {
-            renderer.render(&mut pixels, 1920);
-        });
-        let lyric_pixels = (300..950)
-            .flat_map(|y| (1560..1880).map(move |x| (x, y)))
-            .filter(|(x, y)| {
-                let pixel = pixels[y * 1920 + x];
-                pixel.r > 170 && pixel.g > 170 && pixel.b > 170
-            })
+        // The pane eases towards the active line; let the animation settle
+        // before sampling a frame.
+        for _ in 0..14 {
+            std::thread::sleep(Duration::from_millis(40));
+            slint::platform::update_timers_and_animations();
+            window.draw_if_needed(|renderer| {
+                renderer.render(&mut pixels, 1920);
+            });
+        }
+        let bright = |pixel: slint::Rgb8Pixel| pixel.r > 170 && pixel.g > 170 && pixel.b > 170;
+        let lyric_pixels = (240..1000)
+            .flat_map(|y| (40..1200).map(move |x| (x, y)))
+            .filter(|(x, y)| bright(pixels[y * 1920 + x]))
             .count();
         assert!(
             lyric_pixels > 500,
             "the lyrics viewport collapsed instead of showing its content"
         );
+        // The pane is its own page: whatever page was open behind it must not
+        // show through, which is what made the lines unreadable.
+        let bleed = (300..950)
+            .flat_map(|y| (1560..1880).map(move |x| (x, y)))
+            .filter(|(x, y)| bright(pixels[y * 1920 + x]))
+            .count();
+        assert_eq!(bleed, 0, "the page behind the lyrics must not show through");
         ui.window().dispatch_event(WindowEvent::PointerScrolled {
             position: slint::LogicalPosition::new(1750.0, 600.0),
             delta_x: 0.0,

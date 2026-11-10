@@ -113,9 +113,11 @@ Delivered:
 - Cover art in the transport bar, decoded off the UI thread from the file's
   embedded picture and refreshed whenever playback moves to another track.
 - Synced lyrics follow playback line by line: the pane splits LRC into timed
-  lines, highlights the current one from the transport clock and scrolls it
-  into view, for LRCLIB results and local `.lrc` files alike. Manual scrolling
-  suspends following until the listener presses Follow playback.
+  lines, highlights the current one from the transport clock and eases it into
+  view, for LRCLIB results and local `.lrc` files alike. The pane is its own
+  page over an opaque backdrop, so the library view behind it never shows
+  through. Manual scrolling suspends following until the listener presses
+  Follow playback.
 
 Still open:
 
