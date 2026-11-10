@@ -1311,6 +1311,7 @@ fn attach_playback(
                 };
 
                 remember_tracks(&lookup, &tracks);
+                remember_album_covers(&lookup, &albums);
                 let total_ms: i64 = tracks.iter().map(|track| track.duration_ms).sum();
                 let meta = format!(
                     "{} albums · {} tracks · {}",
@@ -2171,6 +2172,7 @@ fn refresh_all(
                 match ctx.db.artist_tracks(page.id).await {
                     Ok(tracks) => {
                         remember_tracks(&lookup, &tracks);
+                        remember_album_covers(&lookup, &albums);
                         let total_ms: i64 = tracks.iter().map(|track| track.duration_ms).sum();
                         let meta = format!(
                             "{} albums · {} tracks · {}",
@@ -2231,6 +2233,7 @@ fn refresh_all(
         let most_played_rows = track_rows(&most_played);
         let favourite_rows = track_rows(&favourites);
         let history_rows = history_rows(&history);
+        remember_album_covers(&lookup, &albums);
         let album_rows = album_rows(&albums);
         let duration = format_duration(stats.total_duration_ms);
 
@@ -3134,6 +3137,14 @@ fn remember_tracks(lookup: &Arc<Mutex<TrackLookup>>, tracks: &[TrackView]) {
         );
     }
 }
+/// Album cards read their art from one of the release's files, so those files
+/// have to be resolvable by id the same way row covers are.
+fn remember_album_covers(lookup: &Arc<Mutex<TrackLookup>>, albums: &[AlbumSummary]) {
+    let mut lookup = lock(lookup);
+    for cover in albums.iter().filter_map(|album| album.cover.as_ref()) {
+        lookup.paths.insert(cover.track_id, cover.path.clone());
+    }
+}
 fn queue_from(visible: &[TrackId], track: TrackId) -> Option<Vec<TrackId>> {
     let index = visible.iter().position(|candidate| *candidate == track)?;
     Some(visible[index..].to_vec())
@@ -3161,8 +3172,12 @@ fn playlist_rows(playlists: &[PlaylistSummary]) -> Vec<PlaylistRow> {
         .collect()
 }
 
+fn cover_key(id: TrackId, path: &Path, file_size: i64) -> String {
+    format!("{}:{}:{}", id, path.display(), file_size)
+}
+
 fn row_cover_key(track: &TrackView) -> String {
-    format!("{}:{}:{}", track.id, track.path.display(), track.file_size)
+    cover_key(track.id, &track.path, track.file_size)
 }
 
 fn track_rows(tracks: &[TrackView]) -> Vec<TrackRow> {
@@ -3243,6 +3258,7 @@ fn album_rows(albums: &[AlbumSummary]) -> Vec<AlbumRow> {
     albums
         .iter()
         .map(|album| {
+            let cover = album.cover.as_ref();
             let meta = match album.year {
                 Some(year) => format!(
                     "{} tracks · {} · {year}",
@@ -3261,6 +3277,11 @@ fn album_rows(albums: &[AlbumSummary]) -> Vec<AlbumRow> {
                 subtitle: album.album_artist.clone().into(),
                 artist_id: saturating_i32(album.album_artist_id.max(0) as u64),
                 meta: meta.into(),
+                cover_track: cover.map_or(0, |cover| saturating_i32(cover.track_id.max(0) as u64)),
+                cover_key: cover
+                    .map(|cover| cover_key(cover.track_id, &cover.path, cover.file_size))
+                    .unwrap_or_default()
+                    .into(),
             }
         })
         .collect()
@@ -3268,6 +3289,33 @@ fn album_rows(albums: &[AlbumSummary]) -> Vec<AlbumRow> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn album_cards_borrow_the_release_art() {
+        let mut album = AlbumSummary {
+            id: 4,
+            album_artist_id: 2,
+            title: "Selected Ambient Works".to_string(),
+            album_artist: "Aphex Twin".to_string(),
+            year: Some(1992),
+            track_count: 3,
+            duration_ms: 600_000,
+            cover: Some(sonora_db::AlbumCover {
+                track_id: 9,
+                path: PathBuf::from("/music/1.mp3"),
+                file_size: 1024,
+            }),
+        };
+        let rows = album_rows(std::slice::from_ref(&album));
+        assert_eq!(rows[0].cover_track, 9);
+        assert_eq!(rows[0].cover_key, "9:/music/1.mp3:1024");
+
+        // A release with no files left keeps its card, without a cover.
+        album.cover = None;
+        let rows = album_rows(std::slice::from_ref(&album));
+        assert_eq!(rows[0].cover_track, 0);
+        assert!(rows[0].cover_key.is_empty());
+    }
 
     #[test]
     fn activating_a_track_queues_it_and_everything_below() {

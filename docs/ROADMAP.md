@@ -70,10 +70,14 @@ Delivered:
   read, so rating a track, favouriting it or removing a file changes the list
   without editing it. Hand edits — adding, removing, reordering — are refused
   on a smart playlist, and its page edits the rules instead.
+- Artwork instead of placeholders. Track rows show the file's embedded art, and
+  album cards borrow the art of the release's first track in disc order; both
+  decode off the UI thread through one bounded cache and only request art for
+  what is on screen. A release whose files are gone keeps its card, without a
+  cover.
 
 Still open:
 
-- Artwork in the rows and on album cards instead of placeholders.
 - MPRIS (Linux) and SMTC (Windows) media controls; Android uses its platform
   media session instead (see the Android track).
 

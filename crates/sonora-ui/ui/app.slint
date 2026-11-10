@@ -359,6 +359,10 @@ export struct AlbumRow {
     subtitle: string,
     artist-id: int,
     meta: string,
+    // The release's own file whose embedded art stands in for the cover. Both
+    // are empty for a release with no files left in the library.
+    cover-track: int,
+    cover-key: string,
 }
 
 export struct PlaylistRow {
@@ -1217,9 +1221,22 @@ component AlbumCard inherits Rectangle {
         }
     }
 
-    VerticalLayout {
+    // Cards request art like rows do, but only while they can be seen, so a
+    // long shelf does not queue a decode for every release up front.
+    if root.album.cover-track > 0 && root.absolute-position.y + root.height > 0px && root.absolute-position.y < RowArtwork.window-height: SongCover {
+        x: 14px;
+        y: (parent.height - self.height) / 2;
+        width: 50px;
+        height: 50px;
+        track-id: root.album.cover-track;
+        key: root.album.cover-key;
+    }
 
-        padding: 14px;
+    VerticalLayout {
+        x: 76px;
+        width: parent.width - 90px;
+        padding-top: 14px;
+        padding-bottom: 14px;
         spacing: 4px;
         alignment: start;
 
@@ -1680,7 +1697,7 @@ component QueuePanel inherits Rectangle {
         height: 40px * root.scale;
         text: "Queue";
         color: Palette.text;
-        font-size: 32px * root.scale;
+        font-size: 28px * root.scale;
         font-weight: 600;
     }
 
@@ -1748,24 +1765,24 @@ component QueuePanel inherits Rectangle {
 
                 Text {
                     x: 76px * root.scale;
-                    y: -3px * root.scale;
+                    y: 6px * root.scale;
                     width: parent.width - 108px * root.scale;
-                    height: 46px * root.scale;
+                    height: 30px * root.scale;
                     text: entry.title;
                     color: Palette.text;
-                    font-size: 35.264px * root.scale;
+                    font-size: 24px * root.scale;
                     font-weight: 600;
                     overflow: elide;
                 }
 
                 Text {
                     x: 77px * root.scale;
-                    y: 31px * root.scale;
+                    y: 36px * root.scale;
                     width: parent.width - 109px * root.scale;
-                    height: 28px * root.scale;
+                    height: 24px * root.scale;
                     text: entry.artist;
                     color: Palette.muted;
-                    font-size: 17.632px * root.scale;
+                    font-size: 15px * root.scale;
                     font-weight: 600;
                     overflow: elide;
                 }
@@ -3935,9 +3952,11 @@ export component AppWindow inherits Window {
     // Lyrics are their own page: the pane paints an opaque, blurred surface so
     // the library page behind it cannot bleed through the lines.
     if root.lyrics-open: Rectangle {
-        x: 0px;
+        // Stay inside the content column so the sidebar (and the player it
+        // holds) stays visible while the lyrics page is open.
+        x: 286px * root.design-scale;
         y: root.content-top;
-        width: root.width;
+        width: root.width - self.x - (root.queue-open ? root.rail-width + 20px * root.design-scale : 10px * root.design-scale);
         height: root.height - self.y - 33px * root.design-scale;
         border-radius: Palette.panel-radius * root.design-scale;
         clip: true;

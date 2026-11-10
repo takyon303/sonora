@@ -54,7 +54,18 @@ const TRACK_COLUMNS: &str = "
 const ALBUM_COLUMNS: &str = "
     al.id, al.album_artist_id, al.title, aar.name AS album_artist, al.year,
     COUNT(t.id) AS track_count,
-    COALESCE(SUM(t.duration_ms), 0) AS duration_ms
+    COALESCE(SUM(t.duration_ms), 0) AS duration_ms,
+    ct.id AS cover_track_id, ct.path AS cover_path, ct.file_size AS cover_size
+";
+
+/// The track an album card borrows its artwork from: the first file of the
+/// record in disc order, so a card shows the same art the album page would.
+const ALBUM_COVER_JOIN: &str = "
+    LEFT JOIN tracks ct ON ct.id = (
+        SELECT first.id FROM tracks first WHERE first.album_id = al.id
+        ORDER BY COALESCE(first.disc_no, 1), COALESCE(first.track_no, 9999), first.id
+        LIMIT 1
+    )
 ";
 
 const TRACK_FROM: &str = "
@@ -251,6 +262,7 @@ impl Db {
              FROM albums al
              JOIN artists aar ON aar.id = al.album_artist_id
              LEFT JOIN tracks t ON t.album_id = al.id
+             {ALBUM_COVER_JOIN}
              GROUP BY al.id
              ORDER BY aar.sort_name, al.year, al.title"
         );
@@ -265,6 +277,7 @@ impl Db {
              FROM albums al
              JOIN artists aar ON aar.id = al.album_artist_id
              LEFT JOIN tracks t ON t.album_id = al.id
+             {ALBUM_COVER_JOIN}
              WHERE al.id = ?1
              GROUP BY al.id"
         );
@@ -311,6 +324,7 @@ impl Db {
              FROM albums al
              JOIN artists aar ON aar.id = al.album_artist_id
              LEFT JOIN tracks t ON t.album_id = al.id
+             {ALBUM_COVER_JOIN}
              WHERE al.album_artist_id = ?1
              GROUP BY al.id
              ORDER BY COALESCE(al.year, 0), al.title"
@@ -1399,6 +1413,17 @@ pub struct AlbumSummary {
     pub year: Option<i64>,
     pub track_count: i64,
     pub duration_ms: i64,
+    /// The file a card can read the release's embedded art from. `None` when
+    /// the release has no files left in the library.
+    pub cover: Option<AlbumCover>,
+}
+
+/// Where an album's card finds its artwork, without loading the whole track.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AlbumCover {
+    pub track_id: TrackId,
+    pub path: PathBuf,
+    pub file_size: i64,
 }
 
 /// One row on the Playlists page: a name and how much is in it.
@@ -1437,7 +1462,22 @@ fn map_album(row: &SqliteRow) -> AlbumSummary {
         year: row.try_get::<Option<i64>, _>("year").unwrap_or(None),
         track_count: row.get("track_count"),
         duration_ms: row.get("duration_ms"),
+        cover: map_album_cover(row),
     }
+}
+
+fn map_album_cover(row: &SqliteRow) -> Option<AlbumCover> {
+    let track_id = row.try_get::<Option<TrackId>, _>("cover_track_id").ok()??;
+    let path = row.try_get::<Option<String>, _>("cover_path").ok()??;
+    Some(AlbumCover {
+        track_id,
+        path: PathBuf::from(path),
+        file_size: row
+            .try_get::<Option<i64>, _>("cover_size")
+            .ok()
+            .flatten()
+            .unwrap_or(0),
+    })
 }
 
 fn map_track(row: &SqliteRow) -> TrackView {
@@ -1791,6 +1831,12 @@ mod tests {
             .map(|track| track.title)
             .collect();
         assert_eq!(titles, vec!["Xtal", "Tha", "Untitled"]);
+
+        // A card borrows the art of the record's first track in disc order,
+        // not of whichever file happened to be inserted first.
+        let cover = album.cover.expect("cover track");
+        assert_eq!(cover.path, PathBuf::from("/music/1.mp3"));
+        assert_eq!(cover.file_size, 1024);
 
         assert!(db.album_tracks(9_999).await.unwrap().is_empty());
     }
