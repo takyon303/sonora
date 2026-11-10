@@ -241,7 +241,10 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
     }
     ui.set_playback_available(engine.is_some());
     if engine.is_none() {
-        ui.set_status("Playback unavailable. Check the GStreamer installation.".into());
+        set_error_now(
+            &ui,
+            "Playback unavailable. Check the GStreamer installation.",
+        );
     }
     if let Some(engine) = engine.as_ref() {
         refresh_queue_tabs(&weak, engine);
@@ -259,8 +262,9 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
         if let Some(name) = settings.playback_device.as_deref() {
             if let Err(err) = engine.set_device(Some(name)) {
                 log::warn!("saved audio output unavailable: {err}");
-                ui.set_status(
-                    format!("Saved audio output unavailable; using system default: {err}").into(),
+                set_error_now(
+                    &ui,
+                    format!("Saved audio output unavailable; using system default: {err}"),
                 );
             }
         }
@@ -307,14 +311,14 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
                 settings.playback_device = Some(selected.clone());
                 if db.save_settings(&settings).await.is_err() {
                     let _ = weak.upgrade_in_event_loop(|ui| {
-                        ui.set_status("Could not save the playback device.".into());
+                        set_error_now(&ui, "Could not save the playback device.");
                     });
                     return;
                 }
                 let _ = weak.upgrade_in_event_loop(move |ui| {
                     ui.set_settings_device(selected.into());
                     ui.set_device_picker_open(false);
-                    ui.set_status("Audio output saved. Restart Sonora to apply it.".into());
+                    set_status_now(&ui, "Audio output saved. Restart Sonora to apply it.");
                 });
             });
         });
@@ -465,12 +469,12 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
         ui.on_add_folder(move |folder| {
             let folder = folder.trim().to_string();
             if folder.is_empty() {
-                set_status(&weak, "Enter a folder path first.");
+                set_error(&weak, "Enter a folder path first.");
                 return;
             }
             let path = PathBuf::from(&folder);
             if !path.is_dir() {
-                set_status(&weak, format!("{folder} is not a folder Sonora can read."));
+                set_error(&weak, format!("{folder} is not a folder Sonora can read."));
                 return;
             }
             start_scan(
@@ -502,7 +506,7 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
                         );
                         refresh_all(weak, ctx, handle_for_refresh, lookup);
                     }
-                    Err(err) => set_status(&weak, format!("Could not remove folder: {err}")),
+                    Err(err) => set_error(&weak, format!("Could not remove folder: {err}")),
                 }
             });
         });
@@ -560,7 +564,7 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
                             ),
                         );
                     }
-                    Err(err) => set_status(&weak, format!("Scan failed: {err}")),
+                    Err(err) => set_error(&weak, format!("Scan failed: {err}")),
                 }
                 refresh_all(weak.clone(), ctx.clone(), handle_for_task, lookup.clone());
             });
@@ -619,7 +623,7 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
                     let mut settings = match db.load_settings().await {
                         Ok(settings) => settings,
                         Err(err) => {
-                            set_status(&weak, format!("Could not read settings: {err}"));
+                            set_error(&weak, format!("Could not read settings: {err}"));
                             return;
                         }
                     };
@@ -661,7 +665,7 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
                             let history = match db.history(HISTORY_LIMIT, 0).await {
                                 Ok(history) => history,
                                 Err(err) => {
-                                    set_status(
+                                    set_error(
                                         &weak,
                                         format!(
                                             "Settings saved, but history refresh failed: {err}"
@@ -674,12 +678,12 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
                                 apply_settings(&ui, &saved);
                                 ui.set_history_tracks(model(history_rows(&history)));
                                 ui.invoke_cache_action(false);
-                                ui.set_status("Settings saved.".into());
+                                set_status_now(&ui, "Settings saved.");
                             });
                         }
                         Err(err) => {
                             log::error!("could not save settings: {err}");
-                            set_status(&weak, format!("Could not save settings: {err}"));
+                            set_error(&weak, format!("Could not save settings: {err}"));
                         }
                     }
                 });
@@ -701,7 +705,7 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
             handle.spawn(async move {
                 let settings = match db.load_settings().await {
                     Ok(settings) => settings,
-                    Err(err) => { set_status(&weak, format!("Could not read cache settings: {err}")); return; }
+                    Err(err) => { set_error(&weak, format!("Could not read cache settings: {err}")); return; }
                 };
                 let root = settings.cache_folder.unwrap_or(default_root);
                 let cache = sonora_cache::TrackCache::at(root.clone());
@@ -712,14 +716,14 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
                 if clear {
                     let entries = match tokio::task::spawn_blocking(move || cache.entries()).await {
                         Ok(Ok(entries)) => entries,
-                        Ok(Err(err)) => { set_status(&weak, format!("Could not inspect cache: {err}")); return; }
-                        Err(err) => { set_status(&weak, format!("Cache task failed: {err}")); return; }
+                        Ok(Err(err)) => { set_error(&weak, format!("Could not inspect cache: {err}")); return; }
+                        Err(err) => { set_error(&weak, format!("Cache task failed: {err}")); return; }
                     };
                     for entry in entries {
                         match db.track(entry.track).await {
                             Ok(Some(track)) => originals.push(track.path),
                             Ok(None) => {},
-                            Err(err) => { set_status(&weak, format!("Could not protect library files: {err}")); return; }
+                            Err(err) => { set_error(&weak, format!("Could not protect library files: {err}")); return; }
                         }
                     }
                 }
@@ -734,13 +738,13 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
                         let _ = weak.upgrade_in_event_loop(move |ui| {
                             ui.set_cache_size(label.into());
                             if let Some(report) = report {
-                                ui.set_status(format!("Cleared {} cache files; kept {} protected or unowned files. {}",
-                                    report.removed, report.kept, report.errors.join("; ")).into());
+                                set_status_now(&ui, format!("Cleared {} cache files; kept {} protected or unowned files. {}",
+                                    report.removed, report.kept, report.errors.join("; ")));
                             }
                         });
                     }
-                    Ok(Err(err)) => set_status(&weak, format!("Cache operation failed: {err}")),
-                    Err(err) => set_status(&weak, format!("Cache task failed: {err}")),
+                    Ok(Err(err)) => set_error(&weak, format!("Cache operation failed: {err}")),
+                    Err(err) => set_error(&weak, format!("Cache task failed: {err}")),
                 }
             });
         });
@@ -883,12 +887,12 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
                         let _ = weak.upgrade_in_event_loop(move |ui| {
                             apply_settings(&ui, &saved);
                             ui.set_onboarding_open(false);
-                            ui.set_status("Setup complete — add more folders any time.".into());
+                            set_status_now(&ui, "Setup complete — add more folders any time.");
                         });
                     }
                     Err(err) => {
                         log::error!("could not save onboarding settings: {err}");
-                        set_status(&weak, format!("Could not save setup: {err}"));
+                        set_error(&weak, format!("Could not save setup: {err}"));
                     }
                 }
             });
@@ -982,7 +986,7 @@ fn wire_appearance(
             let appearance = *changes.borrow_and_update();
             if let Some(appearance) = appearance {
                 if let Err(err) = db.save_appearance(appearance).await {
-                    set_status(&weak, format!("Could not save appearance: {err}"));
+                    set_error(&weak, format!("Could not save appearance: {err}"));
                 }
             }
         }
@@ -1118,7 +1122,7 @@ fn attach_playback(
                 return;
             };
             if let Err(err) = playback.play_tracks(&tracks) {
-                set_status(&weak, format!("Could not start playback: {err}"));
+                set_error(&weak, format!("Could not start playback: {err}"));
             }
         });
     }
@@ -1149,7 +1153,7 @@ fn attach_playback(
                 return;
             };
             if let Err(err) = playback.play_tracks(&tracks) {
-                set_status(&weak, format!("Could not start the album: {err}"));
+                set_error(&weak, format!("Could not start the album: {err}"));
             }
         });
     }
@@ -1168,7 +1172,7 @@ fn attach_playback(
                 return;
             }
             if let Err(err) = playback.play_tracks(&tracks) {
-                set_status(&weak, format!("Could not start the album: {err}"));
+                set_error(&weak, format!("Could not start the album: {err}"));
             }
         });
     }
@@ -1189,14 +1193,14 @@ fn attach_playback(
                     Ok(Some(album)) => album,
                     Ok(None) => {
                         let _ = weak.upgrade_in_event_loop(|ui| {
-                            ui.set_status("That album is no longer in the library.".into());
+                            set_error_now(&ui, "That album is no longer in the library.");
                         });
                         return;
                     }
                     Err(err) => {
                         log::error!("could not open album {album_id}: {err}");
                         let _ = weak.upgrade_in_event_loop(|ui| {
-                            ui.set_status("Could not open that album.".into());
+                            set_error_now(&ui, "Could not open that album.");
                         });
                         return;
                     }
@@ -1263,7 +1267,7 @@ fn attach_playback(
                 return;
             };
             if let Err(err) = playback.play_tracks(&tracks) {
-                set_status(&weak, format!("Could not start the artist: {err}"));
+                set_error(&weak, format!("Could not start the artist: {err}"));
             }
         });
     }
@@ -1282,7 +1286,7 @@ fn attach_playback(
                 return;
             }
             if let Err(err) = playback.play_tracks(&tracks) {
-                set_status(&weak, format!("Could not start the artist: {err}"));
+                set_error(&weak, format!("Could not start the artist: {err}"));
             }
         });
     }
@@ -1306,7 +1310,7 @@ fn attach_playback(
                     Err(err) => {
                         log::error!("could not open artist {artist_id}: {err}");
                         let _ = weak.upgrade_in_event_loop(|ui| {
-                            ui.set_status("Could not open that artist.".into());
+                            set_error_now(&ui, "Could not open that artist.");
                         });
                         return;
                     }
@@ -1379,7 +1383,7 @@ fn attach_playback(
         let playback = playback.clone();
         ui.on_toggle_playback(move || {
             if let Err(err) = playback.toggle() {
-                set_status(&weak, format!("Could not start playback: {err}"));
+                set_error(&weak, format!("Could not start playback: {err}"));
             }
         });
     }
@@ -1389,7 +1393,7 @@ fn attach_playback(
         let playback = playback.clone();
         ui.on_previous_track(move || {
             if let Err(err) = playback.previous() {
-                set_status(&weak, format!("Could not go back: {err}"));
+                set_error(&weak, format!("Could not go back: {err}"));
             }
         });
     }
@@ -1415,7 +1419,7 @@ fn attach_playback(
                 }
             }
             if let Err(err) = playback.next() {
-                set_status(&weak, format!("Could not skip: {err}"));
+                set_error(&weak, format!("Could not skip: {err}"));
             }
         });
     }
@@ -1425,7 +1429,7 @@ fn attach_playback(
         let weak = weak.clone();
         ui.on_seek_requested(move |position| {
             if let Err(err) = engine.seek_ms(position.max(0) as u64) {
-                set_status(&weak, format!("Could not seek: {err}"));
+                set_error(&weak, format!("Could not seek: {err}"));
             }
         });
     }
@@ -1543,7 +1547,7 @@ fn attach_playback(
                             .unwrap_or_default();
                         if retention != HistoryRetention::Never {
                             if let Err(err) = db.record_play(track).await {
-                                set_status(&weak, format!("Could not record play: {err}"));
+                                set_error(&weak, format!("Could not record play: {err}"));
                                 return;
                             }
                         }
@@ -1559,7 +1563,7 @@ fn attach_playback(
                                 });
                             }
                             Err(err) => {
-                                set_status(&weak, format!("Could not refresh play activity: {err}"))
+                                set_error(&weak, format!("Could not refresh play activity: {err}"))
                             }
                         }
                     });
@@ -1578,7 +1582,7 @@ fn attach_playback(
             sonora_core::RepeatMode::One => 2,
         });
         if let Some(error) = timer_engine.take_error() {
-            ui.set_status(error.into());
+            set_error_now(&ui, error);
         }
         let volume = (timer_engine.volume(), timer_engine.muted());
         if volume != last_volume {
@@ -1591,7 +1595,7 @@ fn attach_playback(
             let weak = timer_weak.clone();
             timer_handle.spawn(async move {
                 if let Err(err) = db.save_volume(volume.0, volume.1).await {
-                    set_status(&weak, format!("Could not save volume: {err}"));
+                    set_error(&weak, format!("Could not save volume: {err}"));
                 }
             });
         }
@@ -1607,10 +1611,10 @@ fn attach_playback(
                                 ui.set_history_tracks(model(history_rows(&entries)))
                             });
                         }
-                        Err(err) => set_status(&weak, format!("Could not refresh history: {err}")),
+                        Err(err) => set_error(&weak, format!("Could not refresh history: {err}")),
                     },
                     Ok(_) => {}
-                    Err(err) => set_status(&weak, format!("History cleanup failed: {err}")),
+                    Err(err) => set_error(&weak, format!("History cleanup failed: {err}")),
                 }
             });
         }
@@ -1675,7 +1679,7 @@ fn start_scan(
             }
             Err(err) => {
                 log::error!("scan failed: {err}");
-                set_status(&weak_for_task, format!("Scan failed: {err}"));
+                set_error(&weak_for_task, format!("Scan failed: {err}"));
             }
         }
 
@@ -1732,7 +1736,7 @@ fn wire_playlists(
                     }
                     Err(err) => {
                         log::warn!("could not create a playlist: {err}");
-                        set_status(&weak, "A playlist needs a name.");
+                        set_error(&weak, "A playlist needs a name.");
                     }
                 }
             });
@@ -1756,7 +1760,7 @@ fn wire_playlists(
                 let rules = match rules_from_editor(filter, favourites, stars, &year) {
                     Ok(rules) => rules,
                     Err(message) => {
-                        set_status(&weak, &message);
+                        set_error(&weak, message);
                         return;
                     }
                 };
@@ -1774,7 +1778,7 @@ fn wire_playlists(
                     }
                     Err(err) => {
                         log::warn!("could not create a smart playlist: {err}");
-                        set_status(&weak, "A playlist needs a name.");
+                        set_error(&weak, "A playlist needs a name.");
                     }
                 }
             });
@@ -1795,13 +1799,13 @@ fn wire_playlists(
             let year = year.to_string();
             handle.clone().spawn(async move {
                 let Some(page) = lock(&lookup).playlist.clone() else {
-                    set_status(&weak, "Open a smart playlist before saving its rules.");
+                    set_error(&weak, "Open a smart playlist before saving its rules.");
                     return;
                 };
                 let rules = match rules_from_editor(filter, favourites, stars, &year) {
                     Ok(rules) => rules,
                     Err(message) => {
-                        set_status(&weak, &message);
+                        set_error(&weak, message);
                         return;
                     }
                 };
@@ -1812,7 +1816,7 @@ fn wire_playlists(
                     }
                     Err(err) => {
                         log::error!("could not save the rules of playlist {}: {err}", page.id);
-                        set_status(&weak, "Only a smart playlist can hold rules.");
+                        set_error(&weak, "Only a smart playlist can hold rules.");
                     }
                 }
             });
@@ -1832,7 +1836,7 @@ fn wire_playlists(
             let name = name.to_string();
             handle.clone().spawn(async move {
                 let Some(playlist) = lock(&lookup).playlist.clone() else {
-                    set_status(&weak, "Open a playlist before renaming one.");
+                    set_error(&weak, "Open a playlist before renaming one.");
                     return;
                 };
                 match db.rename_playlist(playlist.id, &name).await {
@@ -1842,7 +1846,7 @@ fn wire_playlists(
                     }
                     Err(err) => {
                         log::warn!("could not rename playlist {}: {err}", playlist.id);
-                        set_status(&weak, "A playlist needs a name.");
+                        set_error(&weak, "A playlist needs a name.");
                     }
                 }
             });
@@ -1876,7 +1880,7 @@ fn wire_playlists(
                     }
                     Err(err) => {
                         log::error!("could not delete playlist {}: {err}", playlist.id);
-                        set_status(&weak, "Could not delete that playlist.");
+                        set_error(&weak, "Could not delete that playlist.");
                     }
                 }
             });
@@ -1902,7 +1906,7 @@ fn wire_playlists(
                     Ok(false) => set_status(&weak, "That track was not in the playlist."),
                     Err(err) => {
                         log::error!("could not remove track {track}: {err}");
-                        set_status(&weak, "Could not remove that track.");
+                        set_error(&weak, "Could not remove that track.");
                     }
                 }
                 refresh_playlists(&weak, &db, &handle, &lookup);
@@ -1930,7 +1934,7 @@ fn wire_playlists(
                         log::error!(
                             "could not add track {track_id} to playlist {playlist_id}: {err}"
                         );
-                        set_status(&weak, "Could not add that track.");
+                        set_error(&weak, "Could not add that track.");
                     }
                 }
                 let _ = weak.upgrade_in_event_loop(|ui| ui.set_playlist_picker_open(false));
@@ -1961,7 +1965,7 @@ fn wire_playlists(
                     return;
                 }
                 if let Err(err) = playback.play_tracks(&tracks) {
-                    set_status(&weak, format!("Could not start the playlist: {err}"));
+                    set_error(&weak, format!("Could not start the playlist: {err}"));
                 }
             });
         }
@@ -1992,7 +1996,7 @@ fn wire_playlists(
                     return;
                 };
                 if let Err(err) = playback.play_tracks(&tracks) {
-                    set_status(&weak, format!("Could not start the playlist: {err}"));
+                    set_error(&weak, format!("Could not start the playlist: {err}"));
                 }
             });
         }
@@ -2010,14 +2014,14 @@ async fn show_playlist(
     lookup: Arc<Mutex<TrackLookup>>,
 ) {
     let Some(summary) = db.playlist(id).await.ok().flatten() else {
-        set_status(&weak, "That playlist no longer exists.");
+        set_error(&weak, "That playlist no longer exists.");
         return;
     };
     let tracks = match db.playlist_tracks(id).await {
         Ok(tracks) => tracks,
         Err(err) => {
             log::error!("could not read playlist {id}: {err}");
-            set_status(&weak, "Could not open that playlist.");
+            set_error(&weak, "Could not open that playlist.");
             return;
         }
     };
@@ -2025,7 +2029,7 @@ async fn show_playlist(
         Ok(rules) => rules,
         Err(err) => {
             log::error!("could not read the rules of playlist {id}: {err}");
-            set_status(&weak, "Could not read that playlist's rules.");
+            set_error(&weak, "Could not read that playlist's rules.");
             return;
         }
     };
@@ -2310,7 +2314,7 @@ fn run_search(
         let rows = match rows {
             Ok(rows) => rows,
             Err(err) => {
-                set_status(&weak, format!("Search failed: {err}"));
+                set_error(&weak, format!("Search failed: {err}"));
                 return;
             }
         };
@@ -2369,7 +2373,7 @@ fn listen_for_events(
                         ),
                     );
                 }
-                Ok(Event::Warn(message)) => set_status(&weak, message),
+                Ok(Event::Warn(message)) => set_error(&weak, message),
                 Ok(Event::LibraryChanged(_)) => {}
                 Err(broadcast::error::RecvError::Lagged(skipped)) => {
                     log::warn!("UI missed {skipped} engine events");
@@ -2446,12 +2450,12 @@ fn wire_tag_editor(
                 let track = match db.track(id as TrackId).await {
                     Ok(Some(track)) => track,
                     Ok(None) => {
-                        set_status(&weak, "That track is no longer in the library.");
+                        set_error(&weak, "That track is no longer in the library.");
                         return;
                     }
                     Err(err) => {
                         log::error!("could not load tags for editing: {err}");
-                        set_status(&weak, "Could not read that track's tags.");
+                        set_error(&weak, "Could not read that track's tags.");
                         return;
                     }
                 };
@@ -2768,7 +2772,7 @@ fn request_artwork(
                     });
                 }
                 Err(err) => {
-                    ui.set_status(format!("Artwork task failed: {err}").into());
+                    set_error_now(&ui, format!("Artwork task failed: {err}"));
                 }
             }
         });
@@ -3229,7 +3233,24 @@ fn optional_path(value: &str) -> Option<PathBuf> {
 
 fn set_status(weak: &Weak<AppWindow>, message: impl Into<slint::SharedString>) {
     let message = message.into();
-    let _ = weak.upgrade_in_event_loop(move |ui| ui.set_status(message));
+    let _ = weak.upgrade_in_event_loop(move |ui| set_status_now(&ui, message));
+}
+
+/// A failure, not a progress note: the card stays on screen even when the
+/// "Status messages" switch is off, and wears the danger colour.
+fn set_error(weak: &Weak<AppWindow>, message: impl Into<slint::SharedString>) {
+    let message = message.into();
+    let _ = weak.upgrade_in_event_loop(move |ui| set_error_now(&ui, message));
+}
+
+fn set_status_now(ui: &AppWindow, message: impl Into<slint::SharedString>) {
+    ui.set_status(message.into());
+    ui.set_status_error(false);
+}
+
+fn set_error_now(ui: &AppWindow, message: impl Into<slint::SharedString>) {
+    ui.set_status(message.into());
+    ui.set_status_error(true);
 }
 
 fn set_busy(weak: &Weak<AppWindow>, busy: bool) {
@@ -3892,6 +3913,53 @@ mod interaction_tests {
             .dispatch_event(WindowEvent::KeyPressed { text: text.into() });
         ui.window()
             .dispatch_event(WindowEvent::KeyReleased { text: text.into() });
+    }
+
+    /// The shell is greyscale except for the failure colour, so any pixel that
+    /// leans warm came from the error card.
+    fn warm_pixels(pixels: &[slint::Rgb8Pixel]) -> usize {
+        pixels
+            .iter()
+            .filter(|p| i32::from(p.r) - i32::from(p.b) > 30)
+            .count()
+    }
+
+    #[test]
+    fn a_failure_is_shown_even_when_status_messages_are_switched_off() {
+        let window = MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer);
+        slint::platform::set_platform(Box::new(TestPlatform(window.clone()))).unwrap();
+        let ui = AppWindow::new().unwrap();
+        let width = 1920;
+        let height = 1080;
+        window.set_size(slint::PhysicalSize::new(width as u32, height as u32));
+        let mut pixels = vec![slint::Rgb8Pixel::default(); width * height];
+        ui.set_section("tracks".into());
+        ui.set_settings_show_status(false);
+        ui.show().unwrap();
+        wait(&window, &mut pixels, 150);
+
+        // Progress notes still obey the switch.
+        set_status_now(&ui, "Scanning library…");
+        wait(&window, &mut pixels, 120);
+        assert_eq!(warm_pixels(&pixels), 0, "a note was painted as a warning");
+
+        // A failure ignores it, because silence is what hides a dead scan.
+        set_error_now(&ui, "Scan failed: the music folder went away");
+        wait(&window, &mut pixels, 160);
+        let errors = warm_pixels(&pixels);
+        assert!(
+            errors > 150,
+            "the failure card is not on screen: {errors} pixels"
+        );
+
+        // The next note puts the card away again.
+        set_status_now(&ui, "Settings saved.");
+        wait(&window, &mut pixels, 160);
+        assert_eq!(
+            warm_pixels(&pixels),
+            0,
+            "the failure card outlived its message"
+        );
     }
 
     #[test]

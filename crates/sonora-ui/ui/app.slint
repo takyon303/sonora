@@ -17,6 +17,10 @@ global Palette {
     out property <color> accent-hover: #eeeeee;
     out property <color> accent-soft: #ffffff26;
     out property <color> accent-text: #141414;
+    // The only warm colour in the shell. It marks a failure and nothing else,
+    // so anything wearing it means something went wrong.
+    out property <color> danger: #ff9a8a;
+    out property <color> danger-soft: #ff9a8a24;
     out property <length> radius: 10px;
     out property <length> panel-radius: 13px;
 }
@@ -2501,7 +2505,12 @@ export component AppWindow inherits Window {
     in property <string> section: "home";
     in-out property <string> search-text: "";
     in-out property <string> folder-path: "";
-    in property <string> status: "Ready";
+    // Writable, because the status card clears itself when it is clicked.
+    in-out property <string> status: "Ready";
+    // True while `status` carries a failure. Failures are shown even with the
+    // "Status messages" switch off and are drawn as a warning card, so a scan
+    // that died never looks like one that is still running.
+    in-out property <bool> status-error: false;
     in property <bool> busy: false;
     in property <int> track-count: 0;
     in property <int> album-count: 0;
@@ -4506,14 +4515,34 @@ export component AppWindow inherits Window {
             action-metadata => { root.metadata-edit-requested(root.menu-track.id); root.menu-open = false; }
             action-remove => { root.playlist-track-remove(root.menu-track.id); root.menu-open = false; }
         }
-        if root.settings-show-status: Text {
+        // A failure is not a status message the listener can switch off: the
+        // card shows whatever the switch says, and stays until the next message
+        // replaces it or it is clicked away.
+        if root.status != "" && (root.settings-show-status || root.status-error): Rectangle {
             x: 16px * root.design-scale;
             y: root.height - self.height - 16px * root.design-scale;
             width: root.side-width - 32px * root.design-scale;
-            text: root.status;
-            color: Palette.muted;
-            font-size: 11px;
-            overflow: elide;
+            height: status-text.preferred-height + (root.status-error ? 14px : 0px);
+            background: root.status-error ? Palette.danger-soft : transparent;
+            border-radius: 8px;
+            border-width: root.status-error ? 1px : 0px;
+            border-color: Palette.danger;
+
+            status-text := Text {
+                x: root.status-error ? 8px : 0px;
+                y: root.status-error ? 7px : 0px;
+                width: parent.width - (root.status-error ? 16px : 0px);
+                text: root.status;
+                color: root.status-error ? Palette.danger : Palette.muted;
+                font-size: 11px;
+                overflow: elide;
+                wrap: word-wrap;
+            }
+
+            TouchArea {
+                enabled: root.status-error;
+                clicked => { root.status = ""; root.status-error = false; }
+            }
         }
                     // ------------------------------------------------------- playback device picker
                     if root.device-picker-open: Rectangle {

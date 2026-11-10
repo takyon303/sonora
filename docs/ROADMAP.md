@@ -210,12 +210,21 @@ Delivered:
   rows, cards, buttons and menu entries ease between their resting and hovered
   colours. The queue rail is the only one driven by a state transition, so
   resizing the window still moves it immediately.
-- Packaging: Windows installer, Linux AppImage/Flatpak, signed Android APK/AAB.
 - Keyboard shortcuts: Space plays or pauses, Ctrl+Left/Right skip, Ctrl+Shift+
   Left/Right seek ten seconds, Ctrl+Up/Down move the volume, Ctrl+F jumps to
   search, Ctrl+L opens the lyrics page and Escape closes the menu, dialog or
   lyrics page. A focus scope around the window captures them, so they work
   wherever focus is, without stealing a space or an escape from a field being
   typed in; the Settings page lists them.
-- Accessibility pass, error reporting, performance work.
+- Error reporting: a failure is a card, not a status line. It wears the only
+  warm colour in the shell, stays on screen even with the Status messages
+  switch off, wraps instead of truncating the reason, goes away when clicked,
+  and is replaced by the next message. Scanning, folders, settings, playback,
+  tag saving, the cache, artwork and playlists all report through it, so a scan
+  that died can no longer look like one still running.
+
+Still open:
+
+- Packaging: Windows installer, Linux AppImage/Flatpak, signed Android APK/AAB.
+- Accessibility pass, performance work.
 - Format coverage validation against a real test corpus.
