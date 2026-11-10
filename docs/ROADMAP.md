@@ -205,6 +205,11 @@ Delivered:
   optional Last.fm key, skippable at every step, plus **Run onboarding again** in
   settings. The Soulseek sharing notice and device setup join the flow when
   those features exist, rather than being shown before they mean anything.
+- Motion: panels move instead of appearing. The queue rail slides past the
+  window edge, the track menu and both dialogs fade and lift into place, and
+  rows, cards, buttons and menu entries ease between their resting and hovered
+  colours. The queue rail is the only one driven by a state transition, so
+  resizing the window still moves it immediately.
 - Packaging: Windows installer, Linux AppImage/Flatpak, signed Android APK/AAB.
 - Keyboard shortcuts, accessibility pass, error reporting, performance work.
 - Format coverage validation against a real test corpus.

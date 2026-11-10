@@ -3809,6 +3809,82 @@ mod interaction_tests {
         });
     }
 
+    fn frame(window: &Rc<MinimalSoftwareWindow>, pixels: &mut [slint::Rgb8Pixel]) {
+        window.request_redraw();
+        slint::platform::update_timers_and_animations();
+        window.draw_if_needed(|renderer| {
+            renderer.render(pixels, 1920);
+        });
+    }
+
+    fn wait(window: &Rc<MinimalSoftwareWindow>, pixels: &mut [slint::Rgb8Pixel], ms: u64) {
+        let until = std::time::Instant::now() + Duration::from_millis(ms);
+        while std::time::Instant::now() < until {
+            frame(window, pixels);
+            std::thread::sleep(Duration::from_millis(8));
+        }
+    }
+
+    fn brightness(pixels: &[slint::Rgb8Pixel], x0: usize, x1: usize, y0: usize, y1: usize) -> u64 {
+        let mut sum = 0u64;
+        for y in y0..y1 {
+            for x in x0..x1 {
+                sum += pixels[y * 1920 + x].r as u64;
+            }
+        }
+        sum
+    }
+
+    #[test]
+    fn panels_fade_and_slide_instead_of_appearing() {
+        let window = MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer);
+        slint::platform::set_platform(Box::new(TestPlatform(window.clone()))).unwrap();
+        let ui = AppWindow::new().unwrap();
+        window.set_size(slint::PhysicalSize::new(1920, 1080));
+        let mut pixels = vec![slint::Rgb8Pixel::default(); 1920 * 1080];
+        ui.set_section("albums".into());
+        ui.show().unwrap();
+        wait(&window, &mut pixels, 150);
+
+        // The queue rail slides past the window edge instead of vanishing.
+        let rail = (1560, 1920, 400, 800);
+        let open = brightness(&pixels, rail.0, rail.1, rail.2, rail.3);
+        ui.set_queue_open(false);
+        wait(&window, &mut pixels, 60);
+        let sliding = brightness(&pixels, rail.0, rail.1, rail.2, rail.3);
+        wait(&window, &mut pixels, 260);
+        let gone = brightness(&pixels, rail.0, rail.1, rail.2, rail.3);
+        assert!(sliding < open, "the rail did not move: {open} -> {sliding}");
+        assert!(
+            gone < sliding,
+            "the rail stopped between frames: {open} -> {sliding} -> {gone}"
+        );
+        assert!(
+            gone * 4 < open,
+            "the rail is still on screen: {gone} of {open}"
+        );
+        // The tag editor fades its scrim and lifts its card in: the frame the
+        // dialog opens on is dimmer than the settled one.
+        let card = (940, 980, 520, 560);
+        ui.set_tag_editor_open(true);
+        frame(&window, &mut pixels);
+        let first = brightness(&pixels, card.0, card.1, card.2, card.3);
+        wait(&window, &mut pixels, 30);
+        let second = brightness(&pixels, card.0, card.1, card.2, card.3);
+        wait(&window, &mut pixels, 250);
+        let settled = brightness(&pixels, card.0, card.1, card.2, card.3);
+        assert!(
+            first + 5000 < settled,
+            "the editor snapped in: {first} -> {second} -> {settled}"
+        );
+        assert!(
+            first <= second && second <= settled,
+            "the editor faded backwards: {first} -> {second} -> {settled}"
+        );
+        ui.set_tag_editor_open(false);
+        wait(&window, &mut pixels, 200);
+    }
+
     #[test]
     fn pointer_controls_scrub_continuously_and_panels_keep_their_geometry() {
         let window = MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer);

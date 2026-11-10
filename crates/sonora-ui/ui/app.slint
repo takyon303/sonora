@@ -1088,9 +1088,25 @@ component RuleEditor inherits Rectangle {
 component PlaylistPicker inherits Rectangle {
     in property <[PlaylistRow]> playlists;
     in property <string> track-title: "";
+    in property <bool> open: false;
 
     callback picked(int);
     callback dismissed();
+
+    states [
+        away when !root.open: {
+            opacity: 0;
+            card.y: (root.height - card.height) / 2 + 12px;
+            in {
+                animate opacity { duration: 140ms; easing: ease-out; }
+                animate card.y { duration: 200ms; easing: ease-out; }
+            }
+            out {
+                animate opacity { duration: 140ms; easing: ease-out; }
+                animate card.y { duration: 200ms; easing: ease-out; }
+            }
+        }
+    ]
 
     Rectangle {
         width: parent.width;
@@ -1105,11 +1121,11 @@ component PlaylistPicker inherits Rectangle {
         }
     }
 
-    Rectangle {
+    card := Rectangle {
         width: 380px;
         height: min(parent.height - 80px, 440px);
         x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
+        y: (root.height - self.height) / 2;
         border-radius: 10px;
         border-width: 1px;
         border-color: Palette.stroke;
@@ -1224,9 +1240,27 @@ component TagEditor inherits Rectangle {
     in-out property <string> disc-no-text: "";
     in property <string> status: "";
     in property <bool> busy: false;
+    // The dialog is built once and kept hidden, so opening it can fade the page
+    // down and lift the card in instead of snapping it on screen.
+    in property <bool> open: false;
 
     callback save();
     callback dismissed();
+
+    states [
+        away when !root.open: {
+            opacity: 0;
+            card.y: (root.height - card.height) / 2 + 12px;
+            in {
+                animate opacity { duration: 140ms; easing: ease-out; }
+                animate card.y { duration: 200ms; easing: ease-out; }
+            }
+            out {
+                animate opacity { duration: 140ms; easing: ease-out; }
+                animate card.y { duration: 200ms; easing: ease-out; }
+            }
+        }
+    ]
 
     Rectangle {
         width: parent.width;
@@ -1241,11 +1275,11 @@ component TagEditor inherits Rectangle {
         }
     }
 
-    Rectangle {
+    card := Rectangle {
         width: min(460px, parent.width - 48px);
         height: min(parent.height - 80px, 520px);
         x: (parent.width - self.width) / 2;
-        y: (parent.height - self.height) / 2;
+        y: (root.height - self.height) / 2;
         border-radius: 10px;
         border-width: 1px;
         border-color: Palette.stroke;
@@ -1746,14 +1780,36 @@ component TrackMenuDrawer inherits Rectangle {
     callback action-metadata();
     callback action-remove();
 
+    // Kept alive while closed so the sheet can fade up into place.
+    in property <bool> open: false;
+
     // Every action's live state comes straight from the row snapshot; the
     // drawer is re-created for each opening, so no local copy is needed.
 
+    // Centred against the window it is drawn in; the canvas size is handed in
+    // because a component root cannot reach its parent.
+    x: (root.canvas-width - self.width) / 2;
+    y: (root.canvas-height - self.height) / 2;
     height: menu-col.preferred-height;
     border-radius: Palette.panel-radius;
     border-width: 1px;
     border-color: Palette.stroke;
     background: transparent;
+
+    states [
+        away when !root.open: {
+            opacity: 0;
+            y: (root.canvas-height - self.height) / 2 + 14px;
+            in {
+                animate opacity { duration: 130ms; easing: ease-out; }
+                animate y { duration: 190ms; easing: ease-out; }
+            }
+            out {
+                animate opacity { duration: 130ms; easing: ease-out; }
+                animate y { duration: 190ms; easing: ease-out; }
+            }
+        }
+    ]
 
     PanelBackdrop {
         x: 0px;
@@ -4234,38 +4290,64 @@ export component AppWindow inherits Window {
             close => { root.lyrics-open = false; }
         }
     }
-    if root.queue-open: QueuePanel {
+    // The rail stays mounted and slides past the window edge when the queue is
+    // closed; a state (not a plain binding) drives that so dragging the window
+    // wider moves it instantly instead of trailing behind.
+    queue-rail := Rectangle {
         x: root.width - root.rail-width - 10px * root.design-scale;
         y: root.content-top;
         width: root.rail-width;
         height: root.height - self.y - 9px * root.design-scale;
-        scale: root.design-scale;
-        context: root.section == "playlist" ? root.playlist-title : "Library";
-        entries: root.queue-entries;
-        artworks: root.queue-artworks;
-        remove(index) => { root.queue-remove(index); }
-        move(from, to) => { root.queue-move(from, to); }
-        open-album(id) => { root.open-album(id); }
-        open-artist(id, name) => { root.open-artist(id, name); }
+        clip: true;
+
+        QueuePanel {
+            x: 0px;
+            y: 0px;
+            width: parent.width;
+            height: parent.height;
+            scale: root.design-scale;
+            context: root.section == "playlist" ? root.playlist-title : "Library";
+            entries: root.queue-entries;
+            artworks: root.queue-artworks;
+            remove(index) => { root.queue-remove(index); }
+            move(from, to) => { root.queue-move(from, to); }
+            open-album(id) => { root.open-album(id); }
+            open-artist(id, name) => { root.open-artist(id, name); }
+        }
     }
+
+    states [
+        rail-away when !root.queue-open: {
+            queue-rail.x: root.width;
+            in {
+                animate queue-rail.x { duration: 230ms; easing: ease-out; }
+            }
+            out {
+                animate queue-rail.x { duration: 230ms; easing: ease-out; }
+            }
+        }
+    ]
 
     // The track menu is a centred dialog above everything else. The scrim
     // dims the page behind it and closes it on the first click or tap outside.
-    if root.menu-open: Rectangle {
+    menu-scrim := Rectangle {
         x: 0px;
         y: 0px;
         width: root.width;
         height: root.height;
         background: #00000066;
+        visible: root.menu-open;
+        opacity: root.menu-open ? 1.0 : 0.0;
+        animate opacity { duration: 130ms; easing: ease-out; }
 
         TouchArea {
             clicked => { root.menu-open = false; }
         }
     }
 
-    if root.menu-open: TrackMenuDrawer {
-        x: (root.width - self.width) / 2;
-        y: (root.height - self.height) / 2;
+    TrackMenuDrawer {
+        visible: root.menu-open;
+        open: root.menu-open;
         width: min(320px * root.design-scale, root.width - 32px * root.design-scale);
         canvas-width: root.width;
         canvas-height: root.height;
@@ -4420,7 +4502,9 @@ export component AppWindow inherits Window {
             }
         }
     }
-    if root.tag-editor-open: TagEditor {
+    TagEditor {
+        visible: root.tag-editor-open;
+        open: root.tag-editor-open;
         x: 0;
         y: 0;
         width: parent.width;
@@ -4440,7 +4524,9 @@ export component AppWindow inherits Window {
         dismissed => { root.tag-editor-close(); }
     }
 
-    if root.playlist-picker-open: PlaylistPicker {
+    PlaylistPicker {
+        visible: root.playlist-picker-open;
+        open: root.playlist-picker-open;
         x: 0;
         y: 0;
         width: parent.width;
