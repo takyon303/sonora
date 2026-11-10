@@ -3885,6 +3885,134 @@ mod interaction_tests {
         wait(&window, &mut pixels, 200);
     }
 
+    /// Sends a key the way the window adapter does. Modifier keys are their own
+    /// key events, which is how the window keeps track of Control and Shift.
+    fn key(ui: &AppWindow, text: slint::platform::Key) {
+        ui.window()
+            .dispatch_event(WindowEvent::KeyPressed { text: text.into() });
+        ui.window()
+            .dispatch_event(WindowEvent::KeyReleased { text: text.into() });
+    }
+
+    #[test]
+    fn keyboard_shortcuts_work_behind_the_focused_control() {
+        let window = MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer);
+        slint::platform::set_platform(Box::new(TestPlatform(window.clone()))).unwrap();
+        let ui = AppWindow::new().unwrap();
+        window.set_size(slint::PhysicalSize::new(1920, 1080));
+        ui.set_playback_available(true);
+        ui.set_seekable(true);
+        ui.set_duration_ms(100_000);
+        ui.set_position_ms(95_000);
+        ui.set_volume(0.5);
+        let toggles = Rc::new(Cell::new(0));
+        let toggles_for_callback = toggles.clone();
+        ui.on_toggle_playback(move || toggles_for_callback.set(toggles_for_callback.get() + 1));
+        let nexts = Rc::new(Cell::new(0));
+        let nexts_for_callback = nexts.clone();
+        ui.on_next_track(move || nexts_for_callback.set(nexts_for_callback.get() + 1));
+        let back = Rc::new(Cell::new(0));
+        let back_for_callback = back.clone();
+        ui.on_previous_track(move || back_for_callback.set(back_for_callback.get() + 1));
+        let seeks = Rc::new(RefCell::new(Vec::new()));
+        let seeks_for_callback = seeks.clone();
+        ui.on_seek_requested(move |value| seeks_for_callback.borrow_mut().push(value));
+        let volume = Rc::new(Cell::new(-1.0));
+        let volume_for_callback = volume.clone();
+        ui.on_volume_changed(move |value| volume_for_callback.set(value));
+        let lyrics_toggles = Rc::new(Cell::new(0));
+        let lyrics_for_callback = lyrics_toggles.clone();
+        ui.on_lyrics_toggle(move || lyrics_for_callback.set(lyrics_for_callback.get() + 1));
+        // Escape asks the dialogs to close; the window owns the flags, so the
+        // test has to do what the app's wiring does.
+        let weak = ui.as_weak();
+        ui.on_tag_editor_close(move || {
+            if let Some(ui) = weak.upgrade() {
+                ui.set_tag_editor_open(false);
+            }
+        });
+        ui.show().unwrap();
+        window.draw_if_needed(|_| {});
+
+        // Space is the transport key; a dialog in front of the page swallows it
+        // instead of starting playback behind the dialog.
+        key(&ui, slint::platform::Key::Space);
+        assert_eq!(toggles.get(), 1, "Space did not reach the transport");
+        ui.set_tag_editor_open(true);
+        key(&ui, slint::platform::Key::Space);
+        assert_eq!(
+            toggles.get(),
+            1,
+            "Space played a track behind the tag editor"
+        );
+        key(&ui, slint::platform::Key::Escape);
+        assert!(!ui.get_tag_editor_open(), "Escape left the tag editor open");
+
+        // Everything else hangs off Control, so it works while a row or the
+        // search field holds focus.
+        ui.window().dispatch_event(WindowEvent::KeyPressed {
+            text: slint::platform::Key::Control.into(),
+        });
+
+        key(&ui, slint::platform::Key::RightArrow);
+        assert_eq!(nexts.get(), 1, "Ctrl+Right did not skip forward");
+        key(&ui, slint::platform::Key::LeftArrow);
+        assert_eq!(back.get(), 1, "Ctrl+Left did not go back");
+
+        // Seeking clamps at the end of the track rather than running past it.
+        ui.window().dispatch_event(WindowEvent::KeyPressed {
+            text: slint::platform::Key::Shift.into(),
+        });
+        key(&ui, slint::platform::Key::RightArrow);
+        ui.window().dispatch_event(WindowEvent::KeyReleased {
+            text: slint::platform::Key::Shift.into(),
+        });
+        assert_eq!(
+            seeks.borrow().last(),
+            Some(&100_000),
+            "Ctrl+Shift+Right must seek forward and stop at the end"
+        );
+
+        key(&ui, slint::platform::Key::UpArrow);
+        assert!(
+            (volume.get() - 0.55).abs() < 0.001,
+            "Ctrl+Up did not raise the volume: {}",
+            volume.get()
+        );
+        key(&ui, slint::platform::Key::DownArrow);
+        assert!(
+            (volume.get() - 0.5).abs() < 0.001,
+            "Ctrl+Down did not lower the volume: {}",
+            volume.get()
+        );
+
+        // Ctrl+F hands the keyboard to the search field. Control is released
+        // before the test types, because Ctrl+X in the field would be a cut.
+        key(&ui, slint::platform::Key::F);
+        ui.window().dispatch_event(WindowEvent::KeyReleased {
+            text: slint::platform::Key::Control.into(),
+        });
+        ui.window()
+            .dispatch_event(WindowEvent::KeyPressed { text: "x".into() });
+        assert_eq!(
+            ui.get_search_text(),
+            "x",
+            "Ctrl+F did not focus the search field"
+        );
+
+        // Escape closes the sheets it opened, in the order they stack.
+        ui.set_menu_open(true);
+        key(&ui, slint::platform::Key::Escape);
+        assert!(!ui.get_menu_open(), "Escape left the track menu open");
+        ui.set_lyrics_open(true);
+        key(&ui, slint::platform::Key::Escape);
+        assert_eq!(
+            lyrics_toggles.get(),
+            1,
+            "Escape did not ask for the lyrics page to close"
+        );
+    }
+
     #[test]
     fn pointer_controls_scrub_continuously_and_panels_keep_their_geometry() {
         let window = MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer);

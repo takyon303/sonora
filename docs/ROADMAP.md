@@ -211,5 +211,11 @@ Delivered:
   colours. The queue rail is the only one driven by a state transition, so
   resizing the window still moves it immediately.
 - Packaging: Windows installer, Linux AppImage/Flatpak, signed Android APK/AAB.
-- Keyboard shortcuts, accessibility pass, error reporting, performance work.
+- Keyboard shortcuts: Space plays or pauses, Ctrl+Left/Right skip, Ctrl+Shift+
+  Left/Right seek ten seconds, Ctrl+Up/Down move the volume, Ctrl+F jumps to
+  search, Ctrl+L opens the lyrics page and Escape closes the menu, dialog or
+  lyrics page. A focus scope around the window captures them, so they work
+  wherever focus is, without stealing a space or an escape from a field being
+  typed in; the Settings page lists them.
+- Accessibility pass, error reporting, performance work.
 - Format coverage validation against a real test corpus.
