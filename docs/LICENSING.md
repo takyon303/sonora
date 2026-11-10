@@ -27,6 +27,7 @@ compatible with every dependency below.
 | `directories` | 6.x | MIT / Apache-2.0 | Platform data paths |
 | `env_logger`, `log` | 0.11 / 0.4 | MIT / Apache-2.0 | Logging |
 | `tempfile` (dev) | 3.x | MIT / Apache-2.0 | Test fixtures |
+| `i-slint-backend-testing` (dev) | 1.18.1 | GPL-3.0 / royalty-free / commercial | Test only; walks the compiled element tree to check accessibility labels |
 
 ## Repair assets and tooling
 

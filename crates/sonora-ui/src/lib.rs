@@ -3924,6 +3924,83 @@ mod interaction_tests {
             .count()
     }
 
+    /// A screen reader meets the window as named controls inside landmarks.
+    /// "button" with no name is not something anyone can use, so this walks the
+    /// compiled element tree and fails on any control that has no label.
+    #[test]
+    fn every_control_has_a_name_and_the_window_reports_its_landmarks() {
+        let window = MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer);
+        slint::platform::set_platform(Box::new(TestPlatform(window.clone()))).unwrap();
+        let ui = AppWindow::new().unwrap();
+        window.set_size(slint::PhysicalSize::new(1920, 1080));
+        let mut pixels = vec![slint::Rgb8Pixel::default(); 1920 * 1080];
+        ui.set_section("tracks".into());
+        ui.set_all_tracks(model(vec![TrackRow {
+            id: 7,
+            title: "Opening".into(),
+            artist: "Nils Frahm".into(),
+            duration: "3:24".into(),
+            ..TrackRow::default()
+        }]));
+        ui.show().unwrap();
+        wait(&window, &mut pixels, 150);
+
+        use i_slint_backend_testing::{AccessibleRole, ElementRoot};
+        use std::ops::ControlFlow;
+
+        let mut roles: Vec<String> = Vec::new();
+        let mut unnamed: Vec<String> = Vec::new();
+        let mut named_items: Vec<String> = Vec::new();
+        ElementRoot::root_element(&ui).visit_descendants(|element| {
+            let Some(role) = element.accessible_role() else {
+                return ControlFlow::<()>::Continue(());
+            };
+            roles.push(format!("{role:?}"));
+            let named = matches!(
+                role,
+                AccessibleRole::Button
+                    | AccessibleRole::Checkbox
+                    | AccessibleRole::Combobox
+                    | AccessibleRole::RadioButton
+                    | AccessibleRole::Slider
+                    | AccessibleRole::Switch
+                    | AccessibleRole::Tab
+                    | AccessibleRole::TextInput
+                    | AccessibleRole::ListItem
+            );
+            if named {
+                let label = element
+                    .accessible_label()
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+                if label.is_empty() {
+                    unnamed.push(format!("{role:?}"));
+                } else if matches!(role, AccessibleRole::ListItem) {
+                    named_items.push(label);
+                }
+            }
+            ControlFlow::<()>::Continue(())
+        });
+
+        assert!(
+            unnamed.is_empty(),
+            "controls a screen reader cannot name: {unnamed:?}"
+        );
+        for landmark in ["Main", "Complementary", "Navigation", "Search"] {
+            assert!(
+                roles.iter().any(|role| role == landmark),
+                "the window no longer reports the {landmark} landmark: {roles:?}"
+            );
+        }
+        assert!(
+            named_items
+                .iter()
+                .any(|label| label == "Opening, Nils Frahm, 3:24"),
+            "a track row must read as one named item: {named_items:?}"
+        );
+    }
+
     #[test]
     fn a_failure_is_shown_even_when_status_messages_are_switched_off() {
         let window = MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer);

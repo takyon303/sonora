@@ -245,6 +245,7 @@ component IconButton inherits Rectangle {
     opacity: root.enabled ? 1 : 0.35;
     accessible-role: button;
     accessible-label: root.label;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
     forward-focus: focus;
     Image {
         source: root.icon;
@@ -394,6 +395,7 @@ component NavItem inherits Rectangle {
     border-radius: 6px;
     accessible-role: button;
     accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
     forward-focus: nav-focus;
     nav-focus := FocusScope {
         x: 0px;
@@ -472,6 +474,7 @@ component ActionButton inherits Rectangle {
 
     accessible-role: button;
     accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
     forward-focus: action-focus;
     action-focus := FocusScope {
         x: 0px;
@@ -533,6 +536,9 @@ component StepButton inherits Rectangle {
     border-color: Palette.stroke;
     background: touch.has-hover && root.enabled ? Palette.panel-hover : Palette.panel;
     opacity: root.enabled ? 1.0 : 0.35;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
 
     touch := TouchArea {
         clicked => {
@@ -622,6 +628,13 @@ component TrackRowItem inherits Rectangle {
     callback menu-requested(TrackRow, bool, bool);
     callback press-armed(TrackRow, bool, bool);
     callback press-released();
+
+    // A row is one thing to a screen reader: its title, credits and length.
+    accessible-role: list-item;
+    accessible-label: root.track.title
+        + (root.track.artist == "" ? "" : ", " + root.track.artist)
+        + (root.track.duration == "" ? "" : ", " + root.track.duration);
+    accessible-action-default => { root.activate(); }
 
     height: 56px;
     border-radius: 6px;
@@ -841,6 +854,7 @@ component TrackList inherits Rectangle {
     in property <string> empty-message: "";
     in property <bool> show-remove: false;
     in property <bool> show-add: true;
+    in property <string> list-label: "Tracks";
 
     callback activated(int);
     callback open-album(int);
@@ -861,6 +875,7 @@ component TrackList inherits Rectangle {
 
         ListView {
             vertical-stretch: 1;
+            accessible-label: root.list-label;
 
             for item[index] in root.rows: Rectangle {
                 height: 58px;
@@ -900,6 +915,11 @@ component PlaylistCard inherits Rectangle {
     border-radius: 8px;
     background: touch.has-hover ? Palette.panel-hover : Palette.panel;
     animate background { duration: 120ms; easing: ease-out; }
+    accessible-role: list-item;
+    accessible-label: root.playlist.name
+        + (root.playlist.smart ? ", smart playlist" : "")
+        + (root.playlist.count == 1 ? ", 1 track" : ", \{root.playlist.count} tracks");
+    accessible-action-default => { root.opened(root.playlist.id); }
 
     touch := TouchArea {
         clicked => {
@@ -1208,6 +1228,9 @@ component PlaylistPicker inherits Rectangle {
                         border-radius: 6px;
                         background: pick-touch.has-hover ? Palette.panel-hover : transparent;
                         animate background { duration: 120ms; easing: ease-out; }
+                        accessible-role: list-item;
+                        accessible-label: playlist.name + (playlist.count == 1 ? ", 1 track" : ", \{playlist.count} tracks");
+                        accessible-action-default => { root.picked(playlist.id); }
 
                         HorizontalLayout {
                             padding-left: 12px;
@@ -1491,6 +1514,9 @@ component AlbumCard inherits Rectangle {
     border-radius: 8px;
     background: touch.has-hover ? Palette.panel-hover : Palette.panel;
     animate background { duration: 120ms; easing: ease-out; }
+    accessible-role: list-item;
+    accessible-label: root.album.title + (root.album.subtitle == "" ? "" : ", " + root.album.subtitle);
+    accessible-action-default => { root.opened(root.album.id); }
 
     // Opens the release; the artist line sits on top and opens the artist.
     touch := TouchArea {
@@ -1721,7 +1747,7 @@ component SidebarPlayer inherits Rectangle {
             alignment: space-between;
             IconButton {
                 icon: @image-url("../../../assets/design/repeat.svg");
-                label: "Cycle repeat mode";
+                label: root.repeat == 0 ? "Repeat: off" : root.repeat == 1 ? "Repeat: all" : "Repeat: one";
                 active: root.repeat > 0;
                 width: 44px * root.scale;
                 height: 44px * root.scale;
@@ -1730,7 +1756,7 @@ component SidebarPlayer inherits Rectangle {
 
             IconButton {
                 icon: @image-url("../../../assets/design/shuffle.svg");
-                label: "Shuffle";
+                label: root.shuffle ? "Shuffle: on" : "Shuffle: off";
                 active: root.shuffle;
                 width: 44px * root.scale;
                 height: 44px * root.scale;
@@ -1767,6 +1793,9 @@ component MenuRow inherits Rectangle {
     border-radius: 6px;
     background: touch.has-hover && root.enabled ? Palette.panel-hover : transparent;
     animate background { duration: 120ms; easing: ease-out; }
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { if (root.enabled) { root.clicked(); } }
 
     touch := TouchArea {
         enabled: root.enabled;
@@ -2034,6 +2063,8 @@ component QueuePanel inherits Rectangle {
                 border-radius: 8px;
                 background: drag-touch.has-hover ? Palette.panel-hover : Palette.panel;
                 animate background { duration: 120ms; easing: ease-out; }
+                accessible-role: list-item;
+                accessible-label: entry.title + (entry.artist == "" ? "" : ", " + entry.artist);
 
                 drag-touch := TouchArea {
                     moved => {
@@ -2967,6 +2998,7 @@ export component AppWindow inherits Window {
                 width: max(350px, 380px * root.design-scale);
                 height: 36px;
                 spacing: 10px;
+                accessible-role: search;
                 // Decorative: the field itself is the control.
                 Rectangle {
                     width: 24px;
@@ -3023,6 +3055,8 @@ export component AppWindow inherits Window {
             height: root.height - self.y - 9px * root.design-scale;
             border-radius: Palette.panel-radius * root.design-scale;
             background: Palette.sidebar;
+            accessible-role: complementary;
+            accessible-label: "Player and library";
             SidebarPlayer {
                 x: 8px * root.design-scale;
                 y: 7px * root.design-scale;
@@ -3061,6 +3095,8 @@ export component AppWindow inherits Window {
                 width: 250px * root.design-scale;
                 height: parent.height - self.y - 12px;
                 horizontal-scrollbar-policy: always-off;
+                accessible-role: navigation;
+                accessible-label: "Sections";
                 VerticalLayout {
                     alignment: start;
                     spacing: 0px;
@@ -3115,6 +3151,7 @@ export component AppWindow inherits Window {
             width: root.width - self.x - (root.queue-open ? root.rail-width + 20px * root.design-scale : 10px * root.design-scale);
             height: root.height - self.y - 33px * root.design-scale;
             clip: true;
+            accessible-role: main;
             VerticalLayout {
                 alignment: stretch;
                 if root.section != "home" && root.section != "player": Text {
@@ -3908,6 +3945,7 @@ export component AppWindow inherits Window {
                 }
                     // ------------------------------------------------------- tracks
                     if root.section == "tracks": TrackList {
+                    list-label: root.search-text == "" ? "All tracks" : "Search results";
                     rows: root.all-tracks;
                     has-more: root.all-tracks.length >= root.tracks-limit;
                     load-more => { root.load-more-tracks(); }
@@ -3930,6 +3968,7 @@ export component AppWindow inherits Window {
 
                 // ------------------------------------------------------ history
                     if root.section == "history": TrackList {
+                    list-label: "History";
                     rows: root.history-tracks;
                     empty-message: "Nothing played yet. Start a track and it will show up here.";
                     activated(id) => {
@@ -3950,6 +3989,7 @@ export component AppWindow inherits Window {
 
                 // --------------------------------------------------- favourites
                     if root.section == "favourites": TrackList {
+                    list-label: "Favourites";
                     rows: root.favourite-tracks;
                     empty-message: "No favourites yet. Long-press a track to add it here.";
                     activated(id) => {
@@ -4165,6 +4205,7 @@ export component AppWindow inherits Window {
 
                     TrackList {
                         vertical-stretch: 1;
+                        list-label: "Tracks in this playlist";
                         rows: root.playlist-tracks;
                         show-remove: !root.playlist-smart;
                         show-add: !root.playlist-smart;
@@ -4285,6 +4326,7 @@ export component AppWindow inherits Window {
 
                     TrackList {
                         vertical-stretch: 1;
+                        list-label: "Tracks on this album";
                         rows: root.album-tracks;
                         empty-message: "This album has no tracks Sonora can play.";
                         activated(id) => {
@@ -4527,6 +4569,8 @@ export component AppWindow inherits Window {
             border-radius: 8px;
             border-width: root.status-error ? 1px : 0px;
             border-color: Palette.danger;
+            accessible-role: content-info;
+            accessible-label: root.status-error ? "Error: \{root.status}" : root.status;
 
             status-text := Text {
                 x: root.status-error ? 8px : 0px;

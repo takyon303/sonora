@@ -31,3 +31,6 @@ slint-build = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
+# Walks the compiled element tree in tests, to check the accessibility roles
+# and labels the UI actually reports.
+i-slint-backend-testing = "1.18"

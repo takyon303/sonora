@@ -222,9 +222,18 @@ Delivered:
   and is replaced by the next message. Scanning, folders, settings, playback,
   tag saving, the cache, artwork and playlists all report through it, so a scan
   that died can no longer look like one still running.
+- Accessibility: every control reports a role and a name, so a screen reader
+  hears "Shuffle: on" instead of "button"; rows, cards, menu entries and the
+  queue read as one item — a track is "Opening, Nils Frahm, 3:24" — and offer
+  a default action that plays or opens what they stand for. The sidebar, the
+  section list, the search field, the page area and the status card are
+  landmarks, so the window has a structure to move around in. A test walks the
+  compiled element tree and fails on any control that has no name; debug builds
+  carry that tree, release builds do not.
 
 Still open:
 
 - Packaging: Windows installer, Linux AppImage/Flatpak, signed Android APK/AAB.
-- Accessibility pass, performance work.
+- Performance work, measured first: a cold scan of a large library and the
+  first paint of a long track list.
 - Format coverage validation against a real test corpus.
