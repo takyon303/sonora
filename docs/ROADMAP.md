@@ -234,6 +234,20 @@ Delivered:
 Still open:
 
 - Packaging: Windows installer, Linux AppImage/Flatpak, signed Android APK/AAB.
-- Performance work, measured first: a cold scan of a large library and the
-  first paint of a long track list.
-- Format coverage validation against a real test corpus.
+- Performance work beyond what is measured below: frame timing on a real GPU
+  backend, and a library on a slower disk.
+- Format coverage validation against a real test corpus. The decoder claim in
+  `sonora-core` is unverified here: this machine has the GStreamer development
+  headers but no plugins, so nothing could be decoded to confirm it.
+
+Measured on a synthetic library of 2,000 files, release build, at 1920×1080
+through the software renderer:
+
+- A cold scan of the whole library takes 419 ms; a rescan with nothing changed
+  takes 187 ms.
+- A redraw of the Tracks page with 2,000 rows costs 8.5 ms and the Settings page
+  12.3 ms. The track list only lays out the rows on screen, so its cost does not
+  grow with the library.
+
+Nothing in those numbers asks for a change yet. The software renderer is the
+pessimistic case, so a GPU backend should be faster rather than slower.
