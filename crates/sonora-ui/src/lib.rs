@@ -24,8 +24,10 @@ use sonora_core::{
 use sonora_db::{AlbumSummary, Db, HistoryEntry, PlaylistSummary};
 use sonora_playback::{Engine, PlaybackState, Resolver};
 use sonora_scan::Scanner;
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -361,6 +363,9 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
 
     // Playlists work with or without a transport; only playing one needs the
     // engine, and `wire_playlists` skips those two handlers when it is missing.
+    // The suppression cell keeps a long-press release from also starting the
+    // track, here and inside `attach_playback`.
+    let menu_suppress = Rc::new(Cell::new(false));
     wire_playlists(
         &ui,
         weak.clone(),
@@ -368,6 +373,7 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
         handle.clone(),
         lookup.clone(),
         playback.clone(),
+        menu_suppress.clone(),
     );
 
     {
@@ -920,6 +926,7 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
             ctx.db.clone(),
             handle.clone(),
             timed_lyrics.clone(),
+            menu_suppress.clone(),
         );
         let artwork = wire_artwork(
             weak.clone(),
@@ -1026,13 +1033,74 @@ fn attach_playback(
     db: Db,
     handle: Handle,
     timed: LyricsLoader,
+    menu_suppress: Rc<Cell<bool>>,
 ) -> Timer {
     let engine = playback.engine.clone();
     {
+        // The drawer opens from a long press; the release that follows must
+        // not also start playback, so the first activation after the arm
+        // fires is swallowed.
+        let press_generation = Rc::new(Cell::new(0u64));
+
+        {
+            let weak = weak.clone();
+            ui.on_menu_requested(move |track, show_remove, show_add| {
+                let weak = weak.clone();
+                let _ = weak.upgrade_in_event_loop(move |ui| {
+                    ui.set_menu_track(track.clone());
+                    ui.set_menu_show_remove(show_remove);
+                    ui.set_menu_show_add(show_add);
+                    ui.set_menu_open(true);
+                });
+            });
+        }
+
+        {
+            let weak = weak.clone();
+            ui.on_press_armed(move |track, show_remove, show_add| {
+                let gen = press_generation.get() + 1;
+                press_generation.set(gen);
+                let weak = weak.clone();
+                let generation = press_generation.clone();
+                let suppress = menu_suppress.clone();
+                Timer::single_shot(Duration::from_millis(550), move || {
+                    if generation.get() != gen {
+                        // The finger lifted before the hold completed.
+                        return;
+                    }
+                    suppress.set(true);
+                    let _ = weak.upgrade_in_event_loop(move |ui| {
+                        ui.set_menu_track(track);
+                        ui.set_menu_show_remove(show_remove);
+                        ui.set_menu_show_add(show_add);
+                        ui.set_menu_open(true);
+                    });
+                });
+            });
+        }
+
+        {
+            let generation = press_generation.clone();
+            ui.on_press_released(move || generation.set(generation.get() + 1));
+        }
+
         let lookup = lookup.clone();
         let weak = weak.clone();
         let playback = playback.clone();
+        let suppress_click = menu_suppress.clone();
+        let engine = engine.clone();
         ui.on_track_activated(move |id| {
+            if suppress_click.replace(false) {
+                // The long press that opened the drawer must not leave its row
+                // highlighted as the playing one.
+                let current = engine
+                    .current()
+                    .map_or(0, |t| saturating_i32(t.max(0) as u64));
+                let _ = weak.upgrade_in_event_loop(move |ui| {
+                    ui.global::<RowArtwork>().set_current_track(current);
+                });
+                return;
+            }
             let tracks = {
                 let lookup = lock(&lookup);
                 queue_from(&lookup.visible, id as TrackId).or_else(|| {
@@ -1056,7 +1124,18 @@ fn attach_playback(
         let lookup = lookup.clone();
         let weak = weak.clone();
         let playback = playback.clone();
+        let suppress_click = menu_suppress.clone();
+        let engine = engine.clone();
         ui.on_album_track_activated(move |id| {
+            if suppress_click.replace(false) {
+                let current = engine
+                    .current()
+                    .map_or(0, |t| saturating_i32(t.max(0) as u64));
+                let _ = weak.upgrade_in_event_loop(move |ui| {
+                    ui.global::<RowArtwork>().set_current_track(current);
+                });
+                return;
+            }
             let tracks = {
                 let lookup = lock(&lookup);
                 let order = lookup.album.as_ref().map(|page| page.order.clone());
@@ -1159,7 +1238,18 @@ fn attach_playback(
         let lookup = lookup.clone();
         let weak = weak.clone();
         let playback = playback.clone();
+        let suppress_click = menu_suppress.clone();
+        let engine = engine.clone();
         ui.on_artist_track_activated(move |id| {
+            if suppress_click.replace(false) {
+                let current = engine
+                    .current()
+                    .map_or(0, |t| saturating_i32(t.max(0) as u64));
+                let _ = weak.upgrade_in_event_loop(move |ui| {
+                    ui.global::<RowArtwork>().set_current_track(current);
+                });
+                return;
+            }
             let tracks = {
                 let lookup = lock(&lookup);
                 let order = lookup.artist.as_ref().map(|page| page.order.clone());
@@ -1601,6 +1691,7 @@ fn wire_playlists(
     handle: Handle,
     lookup: Arc<Mutex<TrackLookup>>,
     playback: Option<PlaybackHandle>,
+    menu_suppress: Rc<Cell<bool>>,
 ) {
     {
         let weak = weak.clone();
@@ -1875,7 +1966,19 @@ fn wire_playlists(
             let playback = playback.clone();
             let lookup = lookup.clone();
             let weak = weak.clone();
+            let suppress_click = menu_suppress.clone();
+            let engine = playback.as_ref().map(|p| p.engine.clone());
             ui.on_playlist_track_activated(move |id| {
+                if suppress_click.replace(false) {
+                    let current = engine
+                        .as_ref()
+                        .and_then(|engine| engine.current())
+                        .map_or(0, |t| saturating_i32(t.max(0) as u64));
+                    let _ = weak.upgrade_in_event_loop(move |ui| {
+                        ui.global::<RowArtwork>().set_current_track(current);
+                    });
+                    return;
+                }
                 let tracks = {
                     let lookup = lock(&lookup);
                     let order = lookup.playlist.as_ref().map(|page| page.order.clone());

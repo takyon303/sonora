@@ -3,7 +3,7 @@
 // Library views plus the playback transport and queue. Every control here is
 // wired to real behaviour — there are no placeholder buttons.
 
-import { ScrollView, LineEdit, ComboBox } from "std-widgets.slint";
+import { ScrollView, LineEdit, ComboBox, ListView } from "std-widgets.slint";
 
 global Palette {
     out property <color> bg: #141414;
@@ -576,18 +576,17 @@ component TrackRowItem inherits Rectangle {
     in property <bool> show-add: true;
 
     callback activated(int);
-    callback play-next(int);
-    callback enqueue(int);
-    callback favourite(int, bool);
-    callback rate(int, int);
     callback open-album(int);
     callback open-artist(int, string);
-    callback add-to-playlist(int, string);
-    callback remove(int);
+    // Actions live in the drawer menu, not in the row. The menu is opened by
+    // right-click, or by a long press that the backend timers.
+    callback menu-requested(TrackRow, bool, bool);
+    callback press-armed(TrackRow, bool, bool);
+    callback press-released();
 
     height: 56px;
     border-radius: 6px;
-    background: touch.pressed || root.track.id == RowArtwork.current-track ? Palette.accent-soft : ((touch.has-hover || title-touch.has-hover || artist-touch.has-hover || next-touch.has-hover || queue-touch.has-hover || favourite-touch.has-hover || rating-touch.has-hover) ? Palette.panel-hover : transparent);
+    background: touch.pressed || root.track.id == RowArtwork.current-track ? Palette.accent-soft : ((touch.has-hover || title-touch.has-hover || artist-touch.has-hover) ? Palette.panel-hover : transparent);
     function activate() {
         if (RowArtwork.playback-available) {
             RowArtwork.current-track = root.track.id;
@@ -598,6 +597,18 @@ component TrackRowItem inherits Rectangle {
     touch := TouchArea {
         clicked => {
             root.activate();
+        }
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.up && event.button == PointerEventButton.right) {
+                root.menu-requested(root.track, root.show-remove, root.show-add);
+            }
+            if (event.button == PointerEventButton.left) {
+                if (event.kind == PointerEventKind.down) {
+                    root.press-armed(root.track, root.show-remove, root.show-add);
+                } else {
+                    root.press-released();
+                }
+            }
         }
     }
 
@@ -643,6 +654,7 @@ component TrackRowItem inherits Rectangle {
         VerticalLayout {
             spacing: 2px;
             alignment: center;
+            horizontal-stretch: 1;
             min-width: 0px;
             height: parent.height;
 
@@ -664,6 +676,18 @@ component TrackRowItem inherits Rectangle {
                 title-touch := TouchArea {
                     clicked => {
                         root.activate();
+                    }
+                    pointer-event(event) => {
+                        if (event.kind == PointerEventKind.up && event.button == PointerEventButton.right) {
+                            root.menu-requested(root.track, root.show-remove, root.show-add);
+                        }
+                        if (event.button == PointerEventButton.left) {
+                            if (event.kind == PointerEventKind.down) {
+                                root.press-armed(root.track, root.show-remove, root.show-add);
+                            } else {
+                                root.press-released();
+                            }
+                        }
                     }
                 }
             }
@@ -731,6 +755,14 @@ component TrackRowItem inherits Rectangle {
                     font-size: 12px;
                     overflow: elide;
                 }
+
+                // Absorbs the leftover width so the metadata keeps its place
+                // even when the album part is missing entirely.
+                Rectangle {
+                    horizontal-stretch: 1;
+                    min-width: 0px;
+                    background: transparent;
+                }
             }
 
             if root.track.replay_gain != "": Text {
@@ -738,170 +770,6 @@ component TrackRowItem inherits Rectangle {
                 color: Palette.accent;
                 font-size: 11px;
                 overflow: elide;
-            }
-        }
-
-        Rectangle {
-            width: RowArtwork.window-width < 1300px ? 32px : 44px;
-            height: parent.height;
-            background: transparent;
-            Rectangle {
-                y: (parent.height - self.height) / 2;
-                width: parent.width;
-                height: 24px;
-                border-radius: 6px;
-                background: next-touch.has-hover ? Palette.accent-soft : transparent;
-
-                Text {
-                    text: "Next";
-                    color: Palette.muted;
-                    font-size: 10px;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-
-                next-touch := TouchArea {
-                    enabled: RowArtwork.playback-available;
-                    clicked => {
-                        root.play-next(root.track.id);
-                    }
-                }
-            }
-        }
-
-        Rectangle {
-            width: RowArtwork.window-width < 1300px ? 32px : 44px;
-            height: parent.height;
-            background: transparent;
-            Rectangle {
-                y: (parent.height - self.height) / 2;
-                width: parent.width;
-                height: 24px;
-                border-radius: 6px;
-                background: queue-touch.has-hover ? Palette.accent-soft : transparent;
-
-                Text {
-                    text: "Add";
-                    color: Palette.muted;
-                    font-size: 10px;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-
-                queue-touch := TouchArea {
-                    enabled: RowArtwork.playback-available;
-                    clicked => {
-                        root.enqueue(root.track.id);
-                    }
-                }
-            }
-        }
-
-        if root.show-add : Rectangle {
-            width: 28px;
-            height: parent.height;
-            background: transparent;
-            Rectangle {
-                y: (parent.height - self.height) / 2;
-                width: parent.width;
-                height: 24px;
-                border-radius: 6px;
-                background: playlist-touch.has-hover ? Palette.accent-soft : transparent;
-
-                Text {
-                    text: "+";
-                    color: Palette.muted;
-                    font-size: 14px;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-
-                playlist-touch := TouchArea {
-                    clicked => {
-                        root.add-to-playlist(root.track.id, root.track.title);
-                    }
-                }
-            }
-        }
-
-        if root.show-remove: Rectangle {
-            width: 24px;
-            height: parent.height;
-            background: transparent;
-            Rectangle {
-                y: (parent.height - self.height) / 2;
-                width: parent.width;
-                height: 24px;
-                border-radius: 6px;
-                background: remove-touch.has-hover ? Palette.accent-soft : transparent;
-
-                Text {
-                    text: "×";
-                    color: Palette.muted;
-                    font-size: 14px;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-
-                remove-touch := TouchArea {
-                    clicked => {
-                        root.remove(root.track.id);
-                    }
-                }
-            }
-        }
-
-        Rectangle {
-            width: 28px;
-            height: parent.height;
-            background: transparent;
-            Rectangle {
-                y: (parent.height - self.height) / 2;
-                width: parent.width;
-                height: 24px;
-                border-radius: 6px;
-                background: favourite-touch.has-hover ? Palette.accent-soft : transparent;
-
-                Text {
-                    text: root.track.favourite ? "♥" : "♡";
-                    color: root.track.favourite ? Palette.accent : Palette.muted;
-                    font-size: 14px;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-
-                favourite-touch := TouchArea {
-                    clicked => {
-                        root.favourite(root.track.id, !root.track.favourite);
-                    }
-                }
-            }
-        }
-
-        Rectangle {
-            width: 44px;
-            height: parent.height;
-            background: transparent;
-            Rectangle {
-                y: (parent.height - self.height) / 2;
-                width: parent.width;
-                height: 24px;
-                border-radius: 6px;
-                background: rating-touch.has-hover ? Palette.accent-soft : transparent;
-
-                Text {
-                    text: root.track.rating > 0 ? "★ \{root.track.rating}" : "☆";
-                    color: root.track.rating > 0 ? Palette.accent : Palette.muted;
-                    font-size: 11px;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
-                }
-
-                rating-touch := TouchArea {
-                    clicked => {
-                        root.rate(root.track.id, root.track.rating);
-                    }
-                }
             }
         }
 
@@ -924,7 +792,9 @@ component TrackRowItem inherits Rectangle {
 
 // A whole page of tracks. Every list (Tracks, History, Favourites) behaves the
 // same way, so the row wiring lives in one place instead of three copies.
-component TrackList inherits ScrollView {
+// ListView instantiates only the rows near the viewport, so a long library no
+// longer materialises every row at once.
+component TrackList inherits Rectangle {
     vertical-stretch: 1;
     in property <[TrackRow]> rows;
     in property <string> empty-message: "";
@@ -932,42 +802,45 @@ component TrackList inherits ScrollView {
     in property <bool> show-add: true;
 
     callback activated(int);
-    callback play-next(int);
-    callback enqueue(int);
-    callback favourite(int, bool);
-    callback rate(int, int);
     callback open-album(int);
     callback open-artist(int, string);
-    callback add-to-playlist(int, string);
     in property <bool> has-more: false;
     callback load-more();
-    callback remove(int);
+    callback menu-requested(TrackRow, bool, bool);
+    callback press-armed(TrackRow, bool, bool);
+    callback press-released();
 
     VerticalLayout {
-        alignment: start;
         padding: 24px;
-        spacing: 2px;
+        spacing: 10px;
 
         if root.rows.length == 0: EmptyState {
             message: root.empty-message;
         }
 
-        for item[index] in root.rows: TrackRowItem {
-            track: item;
-            position: index + 1;
-            show-index: true;
-            show-remove: root.show-remove;
-            show-add: root.show-add;
-            activated(id) => { root.activated(id); }
-            play-next(id) => { root.play-next(id); }
-            enqueue(id) => { root.enqueue(id); }
-            favourite(id, starred) => { root.favourite(id, starred); }
-            rate(id, rating) => { root.rate(id, rating); }
-            open-album(id) => { root.open-album(id); }
-            open-artist(id, name) => { root.open-artist(id, name); }
-            add-to-playlist(id, title) => { root.add-to-playlist(id, title); }
-            remove(id) => { root.remove(id); }
+        ListView {
+            vertical-stretch: 1;
+
+            for item[index] in root.rows: Rectangle {
+                height: 58px;
+                TrackRowItem {
+                    width: parent.width;
+                    height: 56px;
+                    track: item;
+                    position: index + 1;
+                    show-index: true;
+                    show-remove: root.show-remove;
+                    show-add: root.show-add;
+                    activated(id) => { root.activated(id); }
+                    open-album(id) => { root.open-album(id); }
+                    open-artist(id, name) => { root.open-artist(id, name); }
+                    menu-requested(t, rm, ad) => { root.menu-requested(t, rm, ad); }
+                    press-armed(t, rm, ad) => { root.press-armed(t, rm, ad); }
+                    press-released() => { root.press-released(); }
+                }
+            }
         }
+
         if root.has-more: ActionButton {
             label: "Load more tracks";
             primary: false;
@@ -1590,6 +1463,159 @@ component SidebarPlayer inherits Rectangle {
     }
 }
 
+// Mobile-app style drawer with the track actions. Revealed by right-clicking
+// a row, or by holding one; on wide windows it slides from the right edge like
+// the queue rail, on portrait windows it becomes a full-width bottom sheet.
+component TrackMenuDrawer inherits Rectangle {
+    in property <TrackRow> track;
+    in property <bool> show-remove: false;
+    in property <bool> show-add: true;
+    in property <bool> playback-available: true;
+
+    callback action-play-next();
+    callback action-enqueue();
+    callback action-playlist();
+    callback action-favourite(bool);
+    callback action-rating(int);
+    callback action-remove();
+
+    // Every action's live state comes straight from the row snapshot; the
+    // drawer is re-created for each opening, so no local copy is needed.
+
+    height: menu-col.preferred-height;
+    border-radius: Palette.panel-radius;
+    background: Palette.sidebar;
+
+    menu-col := VerticalLayout {
+        alignment: start;
+        padding: 8px;
+        spacing: 2px;
+
+        Rectangle {
+            height: 52px;
+            background: transparent;
+
+            Text {
+                x: 12px;
+                y: 8px;
+                width: parent.width - 24px;
+                height: 22px;
+                text: root.track.title;
+                color: Palette.text;
+                font-size: 15px;
+                font-weight: 600;
+                overflow: elide;
+            }
+
+            Text {
+                x: 12px;
+                y: 30px;
+                width: parent.width - 24px;
+                height: 16px;
+                text: root.track.subtitle != "" ? root.track.subtitle : (root.track.artist != "" ? root.track.artist : "Unknown Artist");
+                color: Palette.muted;
+                font-size: 12px;
+                overflow: elide;
+            }
+        }
+
+        MenuRow {
+            label: "Play next";
+            enabled: root.playback-available;
+            clicked => { root.action-play-next(); }
+        }
+
+        MenuRow {
+            label: "Add to queue";
+            enabled: root.playback-available;
+            clicked => { root.action-enqueue(); }
+        }
+
+        if root.show-add: MenuRow {
+            label: "Add to playlist…";
+            clicked => { root.action-playlist(); }
+        }
+
+        MenuRow {
+            label: root.track.favourite ? "Remove from favourites" : "Add to favourites";
+            clicked => {
+                root.action-favourite(!root.track.favourite);
+            }
+        }
+
+        if root.show-remove: MenuRow {
+            label: "Remove from list";
+            clicked => { root.action-remove(); }
+        }
+
+        Rectangle {
+            height: 48px;
+            border-radius: 6px;
+            background: Palette.panel;
+
+            HorizontalLayout {
+                padding-left: 8px;
+                spacing: 4px;
+
+                Text {
+                    width: 52px;
+                    height: parent.height;
+                    text: "Rating";
+                    color: Palette.muted;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+
+                for star in [1, 2, 3, 4, 5]: TouchArea {
+                    width: 34px;
+                    height: parent.height;
+                    clicked => {
+                        root.action-rating(root.track.rating == star ? 0 : star);
+                    }
+
+                    Text {
+                        // One star per click; the row shows where the rating is.
+                        width: parent.width;
+                        height: parent.height;
+                        text: root.track.rating >= star ? "★" : "☆";
+                        color: root.track.rating >= star && star > 0 ? Palette.accent : Palette.muted;
+                        font-size: 16px;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+}
+
+component MenuRow inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    height: 44px;
+    border-radius: 6px;
+    background: touch.has-hover && root.enabled ? Palette.panel-hover : transparent;
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: Pointing;
+        clicked => { root.clicked(); }
+    }
+
+    Text {
+        x: 12px;
+        width: parent.width - 24px;
+        height: parent.height;
+        text: root.label;
+        color: root.enabled ? Palette.text : Palette.muted;
+        font-size: 14px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
 component QueuePanel inherits Rectangle {
     in property <[QueueRow]> entries;
     in property <[image]> artworks;
@@ -1608,9 +1634,11 @@ component QueuePanel inherits Rectangle {
 
     Text {
         x: 12px * root.scale;
-        y: 6px * root.scale;
-        width: parent.width - 20px * root.scale;
-        height: 28px * root.scale;
+        y: 2px * root.scale;
+        width: parent.width - 24px * root.scale;
+        // Generous height: descenders of letters like y/g in the 24px font
+        // were sliced off when the box exactly hugged the line.
+        height: 36px * root.scale;
         text: root.context == "" ? "Playing from: Library" : "Playing from: \{root.context}";
         color: Palette.text;
         font-size: 24px * root.scale;
@@ -2239,6 +2267,14 @@ export component AppWindow inherits Window {
     in property <[string]> devices: [];
     in-out property <int> device-picker-selected: 0;
 
+    // Track drawer state: the row snapshot its actions act on, plus which
+    // context opened it (removal only makes sense in a playlist, add only
+    // where the list allows hand edits).
+    in-out property <TrackRow> menu-track;
+    in-out property <bool> menu-open: false;
+    in-out property <bool> menu-show-remove: false;
+    in-out property <bool> menu-show-add: true;
+
     callback section-changed(string);
     callback search-changed(string);
     callback add-folder(string);
@@ -2290,6 +2326,10 @@ export component AppWindow inherits Window {
     // (name, filter, favourites only, minimum stars, earliest year)
     callback playlist-smart-create(string, string, bool, int, string);
     callback playlist-smart-save(string, bool, int, string);
+
+    callback menu-requested(TrackRow, bool, bool);
+    callback press-armed(TrackRow, bool, bool);
+    callback press-released();
 
     in property <string> folder-hint: "Music";
 
@@ -2710,23 +2750,11 @@ export component AppWindow inherits Window {
                         activated(id) => {
                             root.track-activated(id);
                         }
-                        play-next(id) => {
-                            root.play-next-requested(id);
-                        }
-                        enqueue(id) => {
-                            root.enqueue-requested(id);
-                        }
-                        favourite(id, starred) => {
-                            root.favourite-toggled(id, starred);
-                        }
-                        rate(id, rating) => {
-                            root.rating-changed(id, rating);
-                        }
                         open-album(id) => { root.open-album(id); }
                         open-artist(id, name) => { root.open-artist(id, name); }
-                        add-to-playlist(id, title) => {
-                            root.open-playlist-picker(id, title);
-                        }
+                        menu-requested(t, rm, ad) => { root.menu-requested(t, rm, ad); }
+                        press-armed(t, rm, ad) => { root.press-armed(t, rm, ad); }
+                        press-released() => { root.press-released(); }
                     }
 
                     if root.most-played-tracks.length > 0: Text {
@@ -2743,23 +2771,11 @@ export component AppWindow inherits Window {
                         activated(id) => {
                             root.track-activated(id);
                         }
-                        play-next(id) => {
-                            root.play-next-requested(id);
-                        }
-                        enqueue(id) => {
-                            root.enqueue-requested(id);
-                        }
-                        favourite(id, starred) => {
-                            root.favourite-toggled(id, starred);
-                        }
-                        rate(id, rating) => {
-                            root.rating-changed(id, rating);
-                        }
                         open-album(id) => { root.open-album(id); }
                         open-artist(id, name) => { root.open-artist(id, name); }
-                        add-to-playlist(id, title) => {
-                            root.open-playlist-picker(id, title);
-                        }
+                        menu-requested(t, rm, ad) => { root.menu-requested(t, rm, ad); }
+                        press-armed(t, rm, ad) => { root.press-armed(t, rm, ad); }
+                        press-released() => { root.press-released(); }
                     }
                 }
             }
@@ -3399,22 +3415,16 @@ export component AppWindow inherits Window {
                 activated(id) => {
                     root.track-activated(id);
                 }
-                play-next(id) => {
-                    root.play-next-requested(id);
-                }
-                enqueue(id) => {
-                    root.enqueue-requested(id);
-                }
-                favourite(id, starred) => {
-                    root.favourite-toggled(id, starred);
-                }
-                rate(id, rating) => {
-                    root.rating-changed(id, rating);
-                }
                 open-album(id) => { root.open-album(id); }
                 open-artist(id, name) => { root.open-artist(id, name); }
-                add-to-playlist(id, title) => {
-                    root.open-playlist-picker(id, title);
+                menu-requested(t, rm, ad) => {
+                    root.menu-requested(t, rm, ad);
+                }
+                press-armed(t, rm, ad) => {
+                    root.press-armed(t, rm, ad);
+                }
+                press-released() => {
+                    root.press-released();
                 }
             }
 
@@ -3425,48 +3435,36 @@ export component AppWindow inherits Window {
                 activated(id) => {
                     root.track-activated(id);
                 }
-                play-next(id) => {
-                    root.play-next-requested(id);
-                }
-                enqueue(id) => {
-                    root.enqueue-requested(id);
-                }
-                favourite(id, starred) => {
-                    root.favourite-toggled(id, starred);
-                }
-                rate(id, rating) => {
-                    root.rating-changed(id, rating);
-                }
                 open-album(id) => { root.open-album(id); }
                 open-artist(id, name) => { root.open-artist(id, name); }
-                add-to-playlist(id, title) => {
-                    root.open-playlist-picker(id, title);
+                menu-requested(t, rm, ad) => {
+                    root.menu-requested(t, rm, ad);
+                }
+                press-armed(t, rm, ad) => {
+                    root.press-armed(t, rm, ad);
+                }
+                press-released() => {
+                    root.press-released();
                 }
             }
 
             // --------------------------------------------------- favourites
                 if root.section == "favourites": TrackList {
                 rows: root.favourite-tracks;
-                empty-message: "No favourites yet. Press the heart beside a track to keep it here.";
+                empty-message: "No favourites yet. Long-press a track to add it here.";
                 activated(id) => {
                     root.track-activated(id);
                 }
-                play-next(id) => {
-                    root.play-next-requested(id);
-                }
-                enqueue(id) => {
-                    root.enqueue-requested(id);
-                }
-                favourite(id, starred) => {
-                    root.favourite-toggled(id, starred);
-                }
-                rate(id, rating) => {
-                    root.rating-changed(id, rating);
-                }
                 open-album(id) => { root.open-album(id); }
                 open-artist(id, name) => { root.open-artist(id, name); }
-                add-to-playlist(id, title) => {
-                    root.open-playlist-picker(id, title);
+                menu-requested(t, rm, ad) => {
+                    root.menu-requested(t, rm, ad);
+                }
+                press-armed(t, rm, ad) => {
+                    root.press-armed(t, rm, ad);
+                }
+                press-released() => {
+                    root.press-released();
                 }
             }
 
@@ -3670,29 +3668,20 @@ export component AppWindow inherits Window {
                     rows: root.playlist-tracks;
                     show-remove: !root.playlist-smart;
                     show-add: !root.playlist-smart;
-                    empty-message: root.playlist-smart ? "Nothing in the library matches these rules yet." : "This playlist is empty. The + on any row adds that track here.";
+                    empty-message: root.playlist-smart ? "Nothing in the library matches these rules yet." : "This playlist is empty. Add tracks to playlists from the track drawer.";
                     activated(id) => {
                         root.playlist-track-activated(id);
                     }
-                    play-next(id) => {
-                        root.play-next-requested(id);
-                    }
-                    enqueue(id) => {
-                        root.enqueue-requested(id);
-                    }
-                    favourite(id, starred) => {
-                        root.favourite-toggled(id, starred);
-                    }
-                    rate(id, rating) => {
-                        root.rating-changed(id, rating);
-                    }
                     open-album(id) => { root.open-album(id); }
                     open-artist(id, name) => { root.open-artist(id, name); }
-                    remove(id) => {
-                        root.playlist-track-remove(id);
+                    menu-requested(t, rm, ad) => {
+                        root.menu-requested(t, rm, ad);
                     }
-                    add-to-playlist(id, title) => {
-                        root.open-playlist-picker(id, title);
+                    press-armed(t, rm, ad) => {
+                        root.press-armed(t, rm, ad);
+                    }
+                    press-released() => {
+                        root.press-released();
                     }
                 }
             }
@@ -3801,22 +3790,16 @@ export component AppWindow inherits Window {
                     activated(id) => {
                         root.album-track-activated(id);
                     }
-                    play-next(id) => {
-                        root.play-next-requested(id);
-                    }
-                    enqueue(id) => {
-                        root.enqueue-requested(id);
-                    }
-                    favourite(id, starred) => {
-                        root.favourite-toggled(id, starred);
-                    }
-                    rate(id, rating) => {
-                        root.rating-changed(id, rating);
-                    }
                     open-album(id) => { root.open-album(id); }
                     open-artist(id, name) => { root.open-artist(id, name); }
-                    add-to-playlist(id, title) => {
-                        root.open-playlist-picker(id, title);
+                    menu-requested(t, rm, ad) => {
+                        root.menu-requested(t, rm, ad);
+                    }
+                    press-armed(t, rm, ad) => {
+                        root.press-armed(t, rm, ad);
+                    }
+                    press-released() => {
+                        root.press-released();
                     }
                 }
             }
@@ -3903,23 +3886,11 @@ export component AppWindow inherits Window {
                         activated(id) => {
                             root.artist-track-activated(id);
                         }
-                        play-next(id) => {
-                            root.play-next-requested(id);
-                        }
-                        enqueue(id) => {
-                            root.enqueue-requested(id);
-                        }
-                        favourite(id, starred) => {
-                            root.favourite-toggled(id, starred);
-                        }
-                        rate(id, rating) => {
-                            root.rating-changed(id, rating);
-                        }
                         open-album(id) => { root.open-album(id); }
                         open-artist(id, name) => { root.open-artist(id, name); }
-                        add-to-playlist(id, title) => {
-                            root.open-playlist-picker(id, title);
-                        }
+                        menu-requested(t, rm, ad) => { root.menu-requested(t, rm, ad); }
+                        press-armed(t, rm, ad) => { root.press-armed(t, rm, ad); }
+                        press-released() => { root.press-released(); }
                     }
                 }
             }
@@ -3959,6 +3930,33 @@ export component AppWindow inherits Window {
         move(from, to) => { root.queue-move(from, to); }
         open-album(id) => { root.open-album(id); }
         open-artist(id, name) => { root.open-artist(id, name); }
+    }
+
+    // The track drawer sits above everything else. A shield behind it closes
+    // it on the first click or tap outside, like a mobile sheet.
+    if root.menu-open: TouchArea {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        clicked => { root.menu-open = false; }
+    }
+
+    if root.menu-open: TrackMenuDrawer {
+        property <bool> portrait: root.height > root.width;
+        x: portrait ? 0px : root.width - self.width - 10px * root.design-scale;
+        y: portrait ? root.height - self.height - 10px * root.design-scale : root.content-top;
+        width: portrait ? root.width : min(320px * root.design-scale, root.width - root.side-width - 20px * root.design-scale);
+        track: root.menu-track;
+        show-remove: root.menu-show-remove;
+        show-add: root.menu-show-add;
+        playback-available: RowArtwork.playback-available;
+        action-play-next => { root.play-next-requested(root.menu-track.id); root.menu-open = false; }
+        action-enqueue => { root.enqueue-requested(root.menu-track.id); root.menu-open = false; }
+        action-playlist => { root.open-playlist-picker(root.menu-track.id, root.menu-track.title); root.menu-open = false; }
+        action-favourite(liked) => { root.favourite-toggled(root.menu-track.id, liked); root.menu-open = false; }
+        action-rating(value) => { root.rating-changed(root.menu-track.id, value); root.menu-open = false; }
+        action-remove => { root.playlist-track-remove(root.menu-track.id); root.menu-open = false; }
     }
     if root.settings-show-status: Text {
         x: 16px * root.design-scale;
