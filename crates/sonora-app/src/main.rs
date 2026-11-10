@@ -49,6 +49,8 @@ USAGE:
     sonora --artwork <folder>   Export cover art for every track in a folder
     sonora --lyrics <query>     Fetch and store lyrics for the best search match
     sonora --cover <query>      Fetch and store cover art for the best search match
+    sonora --embed-cover <audio> <image>
+                               Write an image into an audio file's tags as its cover
     sonora --cache              Show the track cache and enforce its budget
     sonora --history            Show the most recent plays, newest first
     sonora --where              Print the library database path
@@ -109,6 +111,9 @@ fn main() -> anyhow::Result<()> {
         }
         [flag, query] if flag == "--cover" => {
             save_cover(&runtime, &db, &db_path, query)?;
+        }
+        [flag, audio, image] if flag == "--embed-cover" => {
+            embed_cover_into_file(audio, image)?;
         }
         [flag] if flag == "--cache" => {
             show_cache(&runtime, &db, &db_path)?;
@@ -187,6 +192,21 @@ fn export_artwork(runtime: &tokio::runtime::Runtime, db: &Db, folder: &str) -> a
     println!("Kept:      {}", report.kept_existing);
     println!("No art:    {}", report.without_artwork);
     println!("Failed:    {}", report.failed);
+    Ok(())
+}
+
+/// Write `image` into `audio`'s tags as its front cover.
+fn embed_cover_into_file(audio: &str, image: &str) -> anyhow::Result<()> {
+    let audio = std::path::PathBuf::from(audio);
+    let image = std::path::PathBuf::from(image);
+    if !audio.is_file() {
+        anyhow::bail!("{} is not a file Sonora can read", audio.display());
+    }
+    let bytes =
+        std::fs::read(&image).with_context(|| format!("could not read {}", image.display()))?;
+    sonora_artwork::embed_cover(&audio, &bytes)
+        .with_context(|| format!("could not embed cover into {}", audio.display()))?;
+    println!("Embedded {} into {}", image.display(), audio.display());
     Ok(())
 }
 

@@ -98,10 +98,15 @@ Delivered:
   reads it back and re-indexes the row, so only what the format actually stored
   reaches the library; an emptied field removes that tag, and the file is never
   renamed or copied. Ratings, play counts and favourites survive an edit.
+- Embedded artwork writing: `sonora --embed-cover <audio> <image>` writes an
+  image into a file's primary tag (ID3v2, Vorbis comments, MP4 ilst, APE, AIFF
+  text) as its front cover, replacing any cover already there, and reads it
+  back to confirm. The primitive is `sonora_artwork::embed_cover`, exercised by
+  tests for WAV.
 
 Still open:
 
-- Candidate review UI, embedded artwork writing, Rockbox layout.
+- Candidate review UI and Rockbox layout.
 
 Acceptance: a 2 000-album library converts without corrupting any tag, and the
 review screen shows every proposed change before it is applied.

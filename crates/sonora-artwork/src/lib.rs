@@ -108,6 +108,83 @@ pub fn extract_embedded(path: &Path) -> Result<Option<Vec<u8>>> {
         .map(|picture| picture.data().to_vec()))
 }
 
+/// Write `image` into the audio file's primary tag as its front cover.
+///
+/// Replaces any front cover that is already there. If the file has no tag at
+/// all, one is created in the format's native tag type (ID3v2 for MP3, Vorbis
+/// comments for FLAC/OGG/Opus, and so on); formats with no writable tag type
+/// return an error instead of silently doing nothing. The file is rewritten in
+/// place.
+pub fn embed_cover(path: &Path, image: &[u8]) -> Result<()> {
+    use lofty::config::WriteOptions;
+    use lofty::picture::{Picture, PictureType};
+    use lofty::prelude::TaggedFileExt;
+    use lofty::tag::Tag;
+
+    let mime = mime_for(image)
+        .ok_or_else(|| Error::artwork("unsupported image format: expected JPEG or PNG"))?;
+    let picture = Picture::unchecked(image.to_vec())
+        .pic_type(PictureType::CoverFront)
+        .mime_type(mime)
+        .build();
+
+    let mut tagged =
+        lofty::read_from_path(path).map_err(|err| Error::metadata(path, err.to_string()))?;
+
+    use lofty::prelude::TagExt;
+
+    let tag = match tagged.primary_tag_mut() {
+        Some(tag) => tag,
+        None => match tagged.first_tag_mut() {
+            Some(tag) => tag,
+            None => {
+                let tag_type = tag_type_for(path)?;
+                tagged.insert_tag(Tag::new(tag_type));
+                tagged.first_tag_mut().expect("tag after insert")
+            }
+        },
+    };
+    tag.remove_picture_type(PictureType::CoverFront);
+    tag.push_picture(picture);
+
+    tag.save_to_path(path, WriteOptions::default())
+        .map_err(|err| Error::metadata(path, err.to_string()))?;
+    Ok(())
+}
+
+fn mime_for(bytes: &[u8]) -> Option<lofty::picture::MimeType> {
+    use lofty::picture::MimeType;
+    match image::guess_format(bytes) {
+        Ok(image::ImageFormat::Jpeg) => Some(MimeType::Jpeg),
+        Ok(image::ImageFormat::Png) => Some(MimeType::Png),
+        Ok(image::ImageFormat::Gif) => Some(MimeType::Gif),
+        Ok(image::ImageFormat::Bmp) => Some(MimeType::Bmp),
+        Ok(image::ImageFormat::Tiff) => Some(MimeType::Tiff),
+        _ => None,
+    }
+}
+
+fn tag_type_for(path: &Path) -> Result<lofty::tag::TagType> {
+    use lofty::tag::TagType;
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())
+        .unwrap_or_default();
+    match extension.as_str() {
+        "mp3" => Ok(TagType::Id3v2),
+        "flac" | "ogg" | "oga" | "opus" | "spx" => Ok(TagType::VorbisComments),
+        "m4a" | "aac" | "alac" | "mp4" => Ok(TagType::Mp4Ilst),
+        "wav" | "wave" => Ok(TagType::Id3v2),
+        "aiff" | "aif" | "aifc" => Ok(TagType::AiffText),
+        "ape" => Ok(TagType::Ape),
+        _ => Err(Error::metadata(
+            path,
+            "no writable tag type for this format".to_string(),
+        )),
+    }
+}
+
 /// Decode, scale and re-encode artwork.
 ///
 /// JPEG output has its alpha channel flattened onto white, because JPEG cannot
@@ -500,5 +577,47 @@ mod tests {
         assert_eq!(report.without_artwork, 1);
         assert_eq!(report.failed, 0);
         assert_eq!(report.written, 0);
+    }
+    #[test]
+    fn a_cover_can_be_embedded_into_a_tagless_wav() {
+        let directory = tempfile::tempdir().unwrap();
+        let audio = directory.path().join("plain.wav");
+        silence_wav(&audio);
+        let png = png_with_alpha(16, 16);
+
+        assert!(extract_embedded(&audio).unwrap().is_none());
+
+        embed_cover(&audio, &png).unwrap();
+
+        let extracted = extract_embedded(&audio).unwrap().expect("embedded picture");
+        assert_eq!(extracted, png);
+    }
+
+    #[test]
+    fn embedding_replaces_an_existing_front_cover() {
+        let directory = tempfile::tempdir().unwrap();
+        let audio = directory.path().join("tagged.wav");
+        let first = tag_wav_with_artwork(&audio);
+        let second = png_with_alpha(8, 8);
+
+        embed_cover(&audio, &second).unwrap();
+        let extracted = extract_embedded(&audio).unwrap().unwrap();
+        assert_eq!(extracted, second);
+        assert_ne!(extracted, first);
+    }
+
+    #[test]
+    fn embedding_rejects_unsupported_image_data() {
+        let directory = tempfile::tempdir().unwrap();
+        let audio = directory.path().join("plain.wav");
+        silence_wav(&audio);
+        let err = embed_cover(&audio, b"not an image").unwrap_err();
+        assert!(err.to_string().contains("unsupported image format"));
+    }
+
+    #[test]
+    fn tag_type_for_rejects_unknown_extensions() {
+        let err = tag_type_for(Path::new("track.xyz")).unwrap_err();
+        assert!(err.to_string().contains("no writable tag type"));
     }
 }
