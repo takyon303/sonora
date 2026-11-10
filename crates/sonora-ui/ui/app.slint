@@ -641,10 +641,8 @@ component TrackRowItem inherits Rectangle {
         }
 
         VerticalLayout {
-
             spacing: 2px;
             alignment: center;
-            horizontal-stretch: 1;
             min-width: 0px;
             height: parent.height;
 
@@ -1611,7 +1609,7 @@ component QueuePanel inherits Rectangle {
     Text {
         x: 12px * root.scale;
         y: 6px * root.scale;
-        width: parent.width - 24px * root.scale;
+        width: parent.width - 20px * root.scale;
         height: 28px * root.scale;
         text: root.context == "" ? "Playing from: Library" : "Playing from: \{root.context}";
         color: Palette.text;
@@ -1752,15 +1750,13 @@ component LyricsPanel inherits Rectangle {
 
     callback close();
 
-    // The page owns the whole content area; swallow clicks that land on
-    // padding or spacing so nothing underneath reacts.
+    // Shield swallows clicks so nothing underneath reacts.
     shield := TouchArea {
     }
 
-    background: Palette.sidebar;
-    border-radius: Palette.panel-radius;
-    in-out property <bool> following: true;
-    property <length> auto-y: 0px;
+    // Background removed to be consistent with other pages.
+    // The page fills the content area; the shield ensures clicks don't
+    // reach elements behind it.
 
     // Keep the line playback reached in view. Slint has no query for the position
     // of one repeated child, so the active row reports its own offset and the pane
@@ -3934,9 +3930,9 @@ export component AppWindow inherits Window {
 
     // Lyrics take the whole content area rather than a side rail.
     if root.lyrics-open: Rectangle {
-        x: 286px * root.design-scale;
+        x: 0px;
         y: root.content-top;
-        width: root.width - self.x - (root.queue-open ? root.rail-width + 20px * root.design-scale : 10px * root.design-scale);
+        width: root.width;
         height: root.height - self.y - 33px * root.design-scale;
 
         LyricsPanel {
