@@ -1757,6 +1757,8 @@ component LyricsPanel inherits Rectangle {
     // Background removed to be consistent with other pages.
     // The page fills the content area; the shield ensures clicks don't
     // reach elements behind it.
+    in-out property <bool> following: true;
+    property <length> auto-y: 0px;
 
     // Keep the line playback reached in view. Slint has no query for the position
     // of one repeated child, so the active row reports its own offset and the pane
