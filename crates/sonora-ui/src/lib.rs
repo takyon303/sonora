@@ -3816,6 +3816,32 @@ mod interaction_tests {
         fn create_window_adapter(&self) -> Result<Rc<dyn WindowAdapter>, slint::PlatformError> {
             Ok(self.0.clone())
         }
+
+        /// Slint asks for this when it advances an animation. A test that pins
+        /// the clock gets a frame per 16ms, so a slide takes the same number of
+        /// frames on a busy runner as on an idle machine.
+        fn duration_since_start(&self) -> Duration {
+            match PINNED_CLOCK_MS.with(std::cell::Cell::get) {
+                Some(ms) => Duration::from_millis(ms),
+                None => REAL_CLOCK.get_or_init(std::time::Instant::now).elapsed(),
+            }
+        }
+    }
+
+    thread_local! {
+        /// Animation time in milliseconds for this test thread, or `None` to
+        /// follow the wall clock.
+        static PINNED_CLOCK_MS: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+    }
+
+    static REAL_CLOCK: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+    fn pin_clock() {
+        PINNED_CLOCK_MS.with(|clock| clock.set(Some(0)));
+    }
+
+    fn unpin_clock() {
+        PINNED_CLOCK_MS.with(|clock| clock.set(None));
     }
 
     fn click(ui: &AppWindow, x: f32, y: f32) {
@@ -3831,6 +3857,11 @@ mod interaction_tests {
     }
 
     fn frame(window: &Rc<MinimalSoftwareWindow>, pixels: &mut [slint::Rgb8Pixel]) {
+        PINNED_CLOCK_MS.with(|clock| {
+            if let Some(ms) = clock.get() {
+                clock.set(Some(ms + 16));
+            }
+        });
         window.request_redraw();
         slint::platform::update_timers_and_animations();
         window.draw_if_needed(|renderer| {
@@ -3838,7 +3869,24 @@ mod interaction_tests {
         });
     }
 
+    /// The pixels of one rectangle, in row order, for comparing a region before
+    /// and after something that should not have disturbed it.
+    fn rect(pixels: &[slint::Rgb8Pixel], x: u32, y: u32, w: u32, h: u32) -> Vec<slint::Rgb8Pixel> {
+        (y..y + h)
+            .flat_map(|row| {
+                let start = (row * 1920 + x) as usize;
+                pixels[start..start + w as usize].to_vec()
+            })
+            .collect()
+    }
+
     fn wait(window: &Rc<MinimalSoftwareWindow>, pixels: &mut [slint::Rgb8Pixel], ms: u64) {
+        if PINNED_CLOCK_MS.with(std::cell::Cell::get).is_some() {
+            for _ in 0..ms.div_ceil(16) {
+                frame(window, pixels);
+            }
+            return;
+        }
         let until = std::time::Instant::now() + Duration::from_millis(ms);
         while std::time::Instant::now() < until {
             frame(window, pixels);
@@ -3858,6 +3906,9 @@ mod interaction_tests {
 
     #[test]
     fn panels_fade_and_slide_instead_of_appearing() {
+        // Pinned: the slide below is 230ms and this has to catch it mid-flight,
+        // which a wall clock cannot promise on a loaded machine.
+        pin_clock();
         let window = MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer);
         slint::platform::set_platform(Box::new(TestPlatform(window.clone()))).unwrap();
         let ui = AppWindow::new().unwrap();
@@ -3867,14 +3918,18 @@ mod interaction_tests {
         ui.show().unwrap();
         wait(&window, &mut pixels, 150);
 
-        // The queue rail slides past the window edge instead of vanishing.
+        // The queue rail slides past the window edge instead of vanishing, and
+        // the page under it keeps its layout while it goes.
         let rail = (1560, 1920, 400, 800);
         let open = brightness(&pixels, rail.0, rail.1, rail.2, rail.3);
+        let page = (120, 380, 900, 520);
+        let before = rect(&pixels, page.0, page.1, page.2, page.3);
         ui.set_queue_open(false);
-        wait(&window, &mut pixels, 60);
+        frame(&window, &mut pixels);
         let sliding = brightness(&pixels, rail.0, rail.1, rail.2, rail.3);
-        wait(&window, &mut pixels, 260);
+        wait(&window, &mut pixels, 400);
         let gone = brightness(&pixels, rail.0, rail.1, rail.2, rail.3);
+        let after = rect(&pixels, page.0, page.1, page.2, page.3);
         assert!(sliding < open, "the rail did not move: {open} -> {sliding}");
         assert!(
             gone < sliding,
@@ -3884,6 +3939,12 @@ mod interaction_tests {
             gone * 4 < open,
             "the rail is still on screen: {gone} of {open}"
         );
+        assert!(
+            before == after,
+            "the page moved when the rail slid away: {} pixels changed",
+            before.iter().zip(&after).filter(|(a, b)| a != b).count()
+        );
+
         // The tag editor fades its scrim and lifts its card in: the frame the
         // dialog opens on is dimmer than the settled one.
         let card = (940, 980, 520, 560);
@@ -3904,6 +3965,7 @@ mod interaction_tests {
         );
         ui.set_tag_editor_open(false);
         wait(&window, &mut pixels, 200);
+        unpin_clock();
     }
 
     /// Sends a key the way the window adapter does. Modifier keys are their own
