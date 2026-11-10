@@ -10,9 +10,15 @@ pub type PlaylistId = i64;
 
 /// Audio containers Sonora is prepared to index and play.
 ///
-/// Every format listed here is decodable by the GStreamer plugin set that
-/// Sonora bundles (base/good/bad) — nothing here depends on the GPL `ugly`
-/// plugins.
+/// The scanner reads every one of them through `lofty`. Playback runs on the
+/// GStreamer installation of the machine, so what actually comes out of the
+/// speakers depends on its plugins: with `base` and `good` alone FLAC, MP3,
+/// Vorbis, Opus, WAV, WavPack and Speex decode; AAC needs `faad` from `bad` or
+/// `libav`, ALAC, APE and Musepack need `libav`, and WMA needs the ASF demuxer
+/// from the GPL `ugly` set, which this project does not depend on. A file in
+/// one of those containers is still indexed and shown; playing it without the
+/// plugin stops with GStreamer's missing-plug-in error, which the shell reports
+/// as a failed playback rather than silence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AudioFormat {
     Flac,

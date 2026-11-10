@@ -15,7 +15,7 @@ compatible with every dependency below.
 | `gstreamer` bindings *(phase 2)* | 0.25.4 | MIT | Bindings only |
 | GStreamer core | 1.2x | LGPL-2.1+ | Dynamic linking |
 | `gst-plugins-base`, `-good`, `-bad` | — | LGPL-2.1+ (a few files other licences) | Covers FLAC, Vorbis, Opus, WAV, MP3 via mpg123, AAC via faad |
-| `gst-plugins-ugly` | — | GPL for some elements | **Avoided**; not required by any supported format |
+| `gst-plugins-ugly` | — | GPL for some elements | **Avoided** on licence grounds; WMA is the one listed format that needs its ASF demuxer, so WMA files are indexed but cannot be played |
 | `gst-libav` | — | LGPL-2.1+ | Optional extra codec coverage |
 | `lofty` | 0.25.5 | MIT | Tag reading/writing |
 | `sqlx` (SQLite) | 0.8.6 | MIT / Apache-2.0 | Bundled SQLite is public domain |

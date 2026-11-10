@@ -236,9 +236,19 @@ Still open:
 - Packaging: Windows installer, Linux AppImage/Flatpak, signed Android APK/AAB.
 - Performance work beyond what is measured below: frame timing on a real GPU
   backend, and a library on a slower disk.
-- Format coverage validation against a real test corpus. The decoder claim in
-  `sonora-core` is unverified here: this machine has the GStreamer development
-  headers but no plugins, so nothing could be decoded to confirm it.
+- Format coverage, now measured against a real corpus rather than asserted:
+  with the `base` and `good` plugin sets FLAC, MP3, Vorbis, Opus, WAV, WavPack
+  and Speex decode end to end through `playbin` (a 2,000-file scan indexes
+  them in under half a second), and the scanner reports the error for a file it
+  cannot read instead of dropping it silently. Still unverified here: AAC,
+  ALAC, APE and Musepack need `bad` or `libav`, AIFF has no parser in this
+  plugin set, and WMA needs the ASF demuxer from `ugly`, which this project
+  does not ship. The decoder table in `sonora-core` now says which plugin set
+  each container needs instead of claiming they all decode.
+- Headerless VBR MP3s can report a wildly wrong duration: a 2.04 second file
+  was read as 379 ms, because the estimate trusts the first frame's bitrate.
+  The scanner uses `lofty`'s estimate today; a better fix is to take the
+  duration from GStreamer discovery, which is a bigger change and is deferred.
 
 Measured on a synthetic library of 2,000 files, release build, at 1920×1080
 through the software renderer:
