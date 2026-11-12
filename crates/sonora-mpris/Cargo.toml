@@ -1,0 +1,19 @@
+[package]
+name = "sonora-mpris"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+log = { workspace = true }
+tokio = { workspace = true }
+
+# The Linux desktop shell is the only platform with MPRIS. Other targets get a
+# build that reports no media controls rather than a different protocol.
+[target.'cfg(target_os = "linux")'.dependencies]
+zbus = "5"
+
+[dev-dependencies]
+tempfile = "3"

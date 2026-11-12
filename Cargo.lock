@@ -5196,6 +5196,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sonora-mpris"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "tempfile",
+ "tokio",
+ "zbus",
+]
+
+[[package]]
 name = "sonora-playback"
 version = "0.1.0"
 dependencies = [
@@ -5234,6 +5244,7 @@ dependencies = [
  "sonora-core",
  "sonora-db",
  "sonora-metadata",
+ "sonora-mpris",
  "sonora-playback",
  "sonora-scan",
  "tempfile",

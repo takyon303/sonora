@@ -51,6 +51,7 @@ crates/sonora-scan      recursive walker, lofty extraction, incremental ingest
 crates/sonora-artwork   artwork extraction/conversion/export
 crates/sonora-cache     LRU track cache with budget, disk floor and protected queue
 crates/sonora-metadata  keyless metadata/artwork providers, LRCLIB lyrics, Last.fm
+crates/sonora-mpris     MPRIS media controls on the Linux session bus
 crates/sonora-playback  GStreamer engine and transport over the core queue
 crates/sonora-ui        Slint markup plus the Rust bridge
 crates/sonora-app       binary `sonora`: wiring, paths, CLI, logging
@@ -59,10 +60,11 @@ crates/sonora-app       binary `sonora`: wiring, paths, CLI, logging
 Actual dependency direction (do not add upward dependencies):
 
 - `sonora-app` depends on `sonora-ui`, `sonora-scan`, `sonora-db`, `sonora-artwork`, `sonora-cache`, `sonora-metadata`, `sonora-core`.
-- `sonora-ui` depends on `sonora-scan`, `sonora-db`, `sonora-playback`, `sonora-artwork`, `sonora-metadata`, `sonora-core`.
+- `sonora-ui` depends on `sonora-scan`, `sonora-db`, `sonora-playback`, `sonora-artwork`, `sonora-metadata`, `sonora-mpris`, `sonora-core`.
 - `sonora-scan` depends on `sonora-db`, `sonora-core`.
 - `sonora-playback` depends on `sonora-core`.
 - `sonora-db`, `sonora-artwork`, `sonora-cache` and `sonora-metadata` depend only on `sonora-core`.
+- `sonora-mpris` depends only on `zbus` (Linux) and `tokio`; it never touches playback.
 
 `docs/ARCHITECTURE.md` has historically lagged behind the crate set; trust `Cargo.toml` and code over stale prose.
 

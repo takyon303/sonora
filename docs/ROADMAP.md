@@ -75,11 +75,22 @@ Delivered:
   decode off the UI thread through one bounded cache and only request art for
   what is on screen. A release whose files are gone keeps its card, without a
   cover.
+- MPRIS media controls on Linux. The window publishes
+  `org.mpris.MediaPlayer2.sonora` on the session bus with both halves of the
+  protocol, so media keys, lock-screen controls and panel widgets work. It
+  reports playback status, track metadata (title, artist, album, length and a
+  track id), position, volume, shuffle, loop status and the can-go flags, and
+  turns `PlayPause`, `Play`, `Pause`, `Stop`, `Next`, `Previous`, `Seek`,
+  `SetPosition`, `SetVolume`, `SetShuffle`, `SetLoopStatus` and `Raise` back
+  into engine calls. The bus runs on its own thread as a snapshot plus a
+  command queue, so a missing or wedged shell never stalls the window, and
+  properties are signalled only when they change. A test publishes the player
+  on a private `dbus-daemon` and drives it the way a shell would.
 
 Still open:
 
-- MPRIS (Linux) and SMTC (Windows) media controls; Android uses its platform
-  media session instead (see the Android track).
+- SMTC (Windows) media controls; Android uses its platform media session
+  instead (see the Android track).
 
 Acceptance: playback survives restart with its queue; play counts and history
 are written per track; a smart playlist updates live as rules change.

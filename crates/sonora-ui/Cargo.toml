@@ -17,6 +17,7 @@ sonora-artwork = { workspace = true }
 sonora-db = { workspace = true }
 image = { workspace = true }
 sonora-metadata = { workspace = true }
+sonora-mpris = { workspace = true }
 sonora-scan = { workspace = true }
 tokio = { workspace = true }
 

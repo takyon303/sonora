@@ -22,6 +22,10 @@ use sonora_core::{
     TrackView, SMART_LIMIT_DEFAULT,
 };
 use sonora_db::{AlbumSummary, Db, HistoryEntry, PlaylistSummary};
+use sonora_mpris::{
+    Command as MprisCommand, LoopStatus, Mpris, NowPlaying, PlaybackStatus as MprisStatus,
+    PlayerState as MprisPlayerState,
+};
 use sonora_playback::{Engine, PlaybackState, Resolver};
 use sonora_scan::metadata::{self, TagEdit};
 use sonora_scan::Scanner;
@@ -1485,6 +1489,10 @@ fn attach_playback(
     let timer = Timer::default();
     let timer_weak = weak;
     let timer_engine = engine;
+    // Publish the transport to the desktop shell. A machine without a session
+    // bus, or a second Sonora that already owns the name, just gets no media
+    // keys; the window is never held up by D-Bus.
+    let mpris = Mpris::start(mpris_state(&timer_engine, &lookup));
     let timer_db = db;
     let timer_handle = handle;
     let timer_timed = timed.clone();
@@ -1618,6 +1626,22 @@ fn attach_playback(
                 }
             });
         }
+        // Keep the shell's view current and apply whatever its media keys
+        // queued since the last poll. Applying a command can change the track,
+        // and the next poll (100 ms) redraws the window from the engine.
+        if let Some(mpris) = &mpris {
+            mpris.update(mpris_state(&timer_engine, &lookup));
+            for command in mpris.take_commands() {
+                if command == MprisCommand::Raise {
+                    if let Err(err) = ui.window().show() {
+                        log::debug!("could not raise the window: {err}");
+                    }
+                } else {
+                    apply_mpris_command(&timer_engine, command);
+                }
+            }
+        }
+
         let position = timer_engine.position_ms().unwrap_or(0);
         let duration = timer_engine.duration_ms().unwrap_or(0);
         if !ui.get_seeking() {
@@ -3270,6 +3294,83 @@ fn refresh_queue_tabs(weak: &Weak<AppWindow>, engine: &Engine) {
 }
 
 /// Push the queue and the now-playing labels to the window.
+/// Everything the desktop shell reports for the transport right now.
+fn mpris_state(engine: &Engine, lookup: &Arc<Mutex<TrackLookup>>) -> MprisPlayerState {
+    let status = match engine.state() {
+        PlaybackState::Playing => MprisStatus::Playing,
+        PlaybackState::Paused => MprisStatus::Paused,
+        _ => MprisStatus::Stopped,
+    };
+    let track = engine.current().map(|id| {
+        let info = lock(lookup).labels.get(&id).cloned().unwrap_or_default();
+        NowPlaying {
+            track_id: id,
+            title: info.title,
+            artist: info.artist,
+            album: info.subtitle,
+            length_ms: engine.duration_ms().unwrap_or(0),
+        }
+    });
+    MprisPlayerState {
+        status,
+        track,
+        position_ms: engine.position_ms().unwrap_or(0),
+        volume: engine.volume(),
+        can_go_next: !engine.upcoming().is_empty()
+            || engine.repeat() != sonora_core::RepeatMode::Off,
+        can_go_previous: !engine.history().is_empty(),
+        can_seek: engine.is_seekable(),
+        shuffle: engine.shuffle(),
+        repeat: match engine.repeat() {
+            sonora_core::RepeatMode::Off => LoopStatus::None,
+            sonora_core::RepeatMode::All => LoopStatus::Playlist,
+            sonora_core::RepeatMode::One => LoopStatus::Track,
+        },
+    }
+}
+
+/// Apply a command the desktop shell sent. Playback errors surface through the
+/// engine's own error slot on the next poll, exactly like the transport buttons.
+fn apply_mpris_command(engine: &Engine, command: MprisCommand) {
+    match command {
+        MprisCommand::Play => {
+            let _ = engine.resume();
+        }
+        MprisCommand::Pause => {
+            let _ = engine.pause();
+        }
+        MprisCommand::PlayPause => {
+            let _ = engine.toggle();
+        }
+        MprisCommand::Stop => {
+            let _ = engine.stop();
+        }
+        MprisCommand::Next => {
+            let _ = engine.next();
+        }
+        MprisCommand::Previous => {
+            let _ = engine.previous();
+        }
+        MprisCommand::SeekBy(offset_us) => {
+            let current = engine.position_ms().unwrap_or(0) as i64;
+            let target = (current + offset_us / 1_000).max(0) as u64;
+            let _ = engine.seek_ms(target);
+        }
+        MprisCommand::SeekTo(position_us) => {
+            let _ = engine.seek_ms(position_us / 1_000);
+        }
+        MprisCommand::SetVolume(volume) => engine.set_volume(volume),
+        MprisCommand::SetShuffle(on) => engine.set_shuffle(on),
+        MprisCommand::SetRepeat(mode) => engine.set_repeat(match mode {
+            LoopStatus::None => sonora_core::RepeatMode::Off,
+            LoopStatus::Track => sonora_core::RepeatMode::One,
+            LoopStatus::Playlist => sonora_core::RepeatMode::All,
+        }),
+        // Handled by the caller, which owns the window.
+        MprisCommand::Raise => {}
+    }
+}
+
 fn refresh_playback(weak: &Weak<AppWindow>, engine: &Engine, lookup: &Arc<Mutex<TrackLookup>>) {
     let entries = queue_rows(engine, lookup);
     let now = now_playing(engine, lookup);
