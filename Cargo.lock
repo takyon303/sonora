@@ -5223,6 +5223,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sonora-presence"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "sonora-scan"
 version = "0.1.0"
 dependencies = [
@@ -5253,6 +5262,7 @@ dependencies = [
  "sonora-metadata",
  "sonora-mpris",
  "sonora-playback",
+ "sonora-presence",
  "sonora-scan",
  "tempfile",
  "tokio",

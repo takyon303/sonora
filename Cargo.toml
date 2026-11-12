@@ -7,6 +7,7 @@ members = [
     "crates/sonora-artwork",
     "crates/sonora-metadata",
     "crates/sonora-mpris",
+    "crates/sonora-presence",
     "crates/sonora-playback",
     "crates/sonora-ui",
     "crates/sonora-app",
@@ -28,6 +29,7 @@ sonora-artwork = { path = "crates/sonora-artwork" }
 sonora-cache = { path = "crates/sonora-cache" }
 sonora-metadata = { path = "crates/sonora-metadata" }
 sonora-mpris = { path = "crates/sonora-mpris" }
+sonora-presence = { path = "crates/sonora-presence" }
 sonora-playback = { path = "crates/sonora-playback" }
 sonora-ui = { path = "crates/sonora-ui" }
 

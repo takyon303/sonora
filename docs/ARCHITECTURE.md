@@ -83,7 +83,7 @@ No crate may depend "upward": the database never knows about Slint, the UI never
 issues SQL, and the scanner never touches widgets. This is what lets playback,
 Last.fm, artwork and device sync be added without rewriting the shell.
 
-*(planned)* `sonora-services` (Last.fm scrobbling, Discord presence),
+`sonora-presence` (Discord Rich Presence),
 `sonora-device` (sync) and `sonora-soulseek` slot in beside these, each
 depending on `sonora-core` and (where they persist data) `sonora-db`.
 

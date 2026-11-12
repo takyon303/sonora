@@ -48,6 +48,8 @@ const PAGE_LIMIT: i64 = 500;
 /// How often plays waiting for Last.fm are retried.
 const SCROBBLE_DRAIN_INTERVAL: Duration = Duration::from_secs(30);
 const SCROBBLE_BATCH: i64 = 25;
+/// How often the presence re-reads the saved settings it follows.
+const PRESENCE_SYNC_INTERVAL: Duration = Duration::from_secs(5);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// The design uses a 250px cover; 512px also covers double-density displays.
 const ARTWORK_PX: u32 = 512;
@@ -265,7 +267,12 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
         ui.set_volume(engine.volume() as f32);
     }
 
+    // Discord presence runs on its own thread and is silent until the listener
+    // turns it on and names the Discord application it is registered under.
+    let presence = Arc::new(sonora_presence::Presence::start());
+
     let settings = handle.block_on(ctx.db.load_settings())?;
+    configure_presence(&presence, &settings);
     if let Some(engine) = engine.as_ref() {
         engine.set_volume(settings.volume);
         engine.set_muted(settings.muted);
@@ -765,7 +772,9 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
                   cache_folder,
                   device_sync,
                   device,
-                  retention| {
+                  retention,
+                  discord_presence,
+                  discord_app_id| {
                 let weak = weak.clone();
                 let db = db.clone();
                 let mixer = engine
@@ -821,6 +830,8 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
                     settings.download_folder = optional_path(download_folder.as_str());
                     settings.cache_folder = optional_path(cache_folder.as_str());
                     settings.device_sync_enabled = device_sync;
+                    settings.discord_presence = discord_presence;
+                    settings.discord_app_id = optional_string(discord_app_id.as_str());
                     settings.history_retention =
                         HistoryRetention::from_index(retention.max(0) as usize);
                     settings.playback_device = optional_string(device.as_str());
@@ -1097,6 +1108,7 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
             handle.clone(),
             timed_lyrics.clone(),
             menu_suppress.clone(),
+            presence.clone(),
         );
         let artwork = wire_artwork(
             weak.clone(),
@@ -1203,6 +1215,7 @@ fn attach_playback(
     handle: Handle,
     timed: LyricsLoader,
     menu_suppress: Rc<Cell<bool>>,
+    presence: Arc<sonora_presence::Presence>,
 ) -> Timer {
     // The handle already carries these two, so the callers do not pass copies.
     let weak = playback.weak.clone();
@@ -1721,6 +1734,9 @@ fn attach_playback(
     // database remembers it, and a worker sends what it can.
     let mut scrobbles = sonora_core::scrobble::ScrobbleWatch::new();
     let mut drain_at = Instant::now();
+    // What Discord has been told, so the socket is only touched on a change.
+    let mut presence_shown: Option<(TrackId, bool)> = None;
+    let mut presence_sync_at = Instant::now();
     timer.start(TimerMode::Repeated, POLL_INTERVAL, move || {
         let Some(ui) = timer_weak.upgrade() else {
             return;
@@ -1917,6 +1933,39 @@ fn attach_playback(
             drain_at = Instant::now();
             let db = timer_db.clone();
             timer_handle.spawn(async move { drain_scrobbles(db).await });
+        }
+
+        // Discord sees a track only while it is playing: pausing clears the
+        // presence instead of leaving a frozen one behind.
+        let playing_now = state == PlaybackState::Playing;
+        let snapshot = timer_engine
+            .current()
+            .filter(|_| state != PlaybackState::Stopped);
+        let shown = snapshot.map(|track| (track, playing_now));
+        if shown != presence_shown {
+            presence_shown = shown;
+            let now_playing = snapshot.and_then(|track| {
+                let info = lock(&lookup).labels.get(&track).cloned()?;
+                Some(sonora_presence::NowPlaying {
+                    title: info.title.clone(),
+                    artist: info.artist.clone(),
+                    album: None,
+                    position_ms: position as i64,
+                    duration_ms: duration as i64,
+                    playing: playing_now,
+                })
+            });
+            presence.publish(now_playing);
+        }
+        if presence_sync_at.elapsed() >= PRESENCE_SYNC_INTERVAL {
+            presence_sync_at = Instant::now();
+            let db = timer_db.clone();
+            let presence = presence.clone();
+            timer_handle.spawn(async move {
+                if let Ok(settings) = db.load_settings().await {
+                    configure_presence(&presence, &settings);
+                }
+            });
         }
 
         // Synced lyrics follow the transport: the line whose timestamp has been
@@ -3340,6 +3389,17 @@ fn lastfm_status(settings: &Settings) -> String {
     }
 }
 
+/// Turn the presence worker on only when the listener opted in and named the
+/// Discord application the presence belongs to.
+fn configure_presence(presence: &sonora_presence::Presence, settings: &Settings) {
+    let app_id = if settings.discord_presence {
+        settings.discord_app_id.as_deref()
+    } else {
+        None
+    };
+    presence.connect(app_id);
+}
+
 /// The Last.fm client for these settings, if the listener has connected.
 fn lastfm_client(settings: &Settings) -> Option<LastFm> {
     Some(
@@ -3782,6 +3842,8 @@ fn apply_settings(ui: &AppWindow, settings: &Settings) {
     );
     ui.set_settings_lastfm_status(lastfm_status(settings).into());
     ui.set_settings_lastfm_connecting(false);
+    ui.set_settings_discord_presence(settings.discord_presence);
+    ui.set_settings_discord_app_id(settings.discord_app_id.clone().unwrap_or_default().into());
     ui.set_settings_download_folder(
         settings
             .download_folder

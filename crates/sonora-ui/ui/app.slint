@@ -2718,6 +2718,8 @@ export component AppWindow inherits Window {
     in-out property <string> settings-download-folder: "";
     in-out property <string> settings-cache-folder: "";
     in-out property <bool> settings-device-sync: false;
+    in-out property <bool> settings-discord-presence: false;
+    in-out property <string> settings-discord-app-id: "";
     in-out property <string> settings-device: "";
     in-out property <int> settings-history-retention: 7;
     in property <string> cache-size: "Not measured";
@@ -2772,7 +2774,7 @@ export component AppWindow inherits Window {
     callback volume-changed(float);
     callback queue-move(int, int);
     callback queue-remove(int);
-    callback save-settings(string, int, int, string, int, string, string, string, string, string, bool, string, int);
+    callback save-settings(string, int, int, string, int, string, string, string, string, string, bool, string, int, bool, string);
     callback lastfm-connect(string, string);
     callback lastfm-finish();
     callback cache-action(bool);
@@ -3894,6 +3896,52 @@ export component AppWindow inherits Window {
                         }
 
                         Text {
+                            text: "Discord";
+                            color: Palette.text;
+                            font-size: 16px;
+                            font-weight: 600;
+                        }
+
+                        Text {
+                            text: "Shows the track you are playing in Discord under \"Sonora pre-release\", and hides it whenever playback is paused or stopped. Off by default. Needs the application id from Discord's developer portal, and the Discord desktop app running.";
+                            color: Palette.muted;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+
+                        LineEdit {
+                            text: root.settings-discord-app-id;
+                            placeholder-text: "Application id";
+                            edited(text) => {
+                                root.settings-discord-app-id = text;
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 10px;
+                            ActionButton {
+                                label: "Enabled";
+                                primary: root.settings-discord-presence;
+                                clicked => {
+                                    root.settings-discord-presence = true;
+                                }
+                            }
+
+                            ActionButton {
+                                label: "Disabled";
+                                primary: !root.settings-discord-presence;
+                                clicked => {
+                                    root.settings-discord-presence = false;
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            height: 1px;
+                            background: Palette.stroke;
+                        }
+
+                        Text {
                             text: "Device sync";
                             color: Palette.text;
                             font-size: 16px;
@@ -3987,7 +4035,7 @@ export component AppWindow inherits Window {
                         ActionButton {
                             label: "Save settings";
                                 clicked => {
-                                    root.save-settings(root.settings-format-tier, root.bitrate-shown, root.cache-shown, root.settings-artwork-format, root.settings-artwork-quality, root.settings-folder-template, root.settings-lastfm-key, root.settings-lastfm-secret, root.settings-download-folder, root.settings-cache-folder, root.settings-device-sync, root.settings-device, root.settings-history-retention);
+                                    root.save-settings(root.settings-format-tier, root.bitrate-shown, root.cache-shown, root.settings-artwork-format, root.settings-artwork-quality, root.settings-folder-template, root.settings-lastfm-key, root.settings-lastfm-secret, root.settings-download-folder, root.settings-cache-folder, root.settings-device-sync, root.settings-device, root.settings-history-retention, root.settings-discord-presence, root.settings-discord-app-id);
                                 }
                             }
 

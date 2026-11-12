@@ -171,16 +171,23 @@ Delivered:
   offline catches up when the network returns, and now-playing is announced
   per track. The rule and the watch live in `sonora_core::scrobble` and are
   tested without a window or a network.
+- Discord Rich Presence on desktop, off until the listener turns it on and
+  names the Discord application it belongs to. `sonora-presence` owns one
+  worker thread and speaks the Discord app's IPC protocol (a handshake, then
+  `SET_ACTIVITY`), retrying every fifteen seconds so Discord may start after
+  Sonora. The first line is the track and artist, the second reads
+  `Sonora pre-release`; nothing is published unless a track is playing, so
+  pausing or stopping clears the presence instead of freezing it. A machine
+  without Discord simply never connects, and the window never waits.
 
 Still open:
 
 - Last.fm (needs a free developer API key): auth, scrobbling with an offline
   queue, now-playing, loved tracks, charts, similar artists, recommendations,
   cached responses.
-- Discord Rich Presence (hidden while paused, fully disableable): RPC/IPC on
-  desktop, and on Android through the Discord Social SDK, which publishes
-  presence without account linking when the Discord app is installed and signed
-  in (SDK 1.10+, Android 7.0+).
+- Discord Rich Presence on Android, through the Discord Social SDK, which
+  publishes presence without account linking when the Discord app is installed
+  and signed in (SDK 1.10+, Android 7.0+).
 - Discovery homepage that degrades to local data when offline.
 
 Acceptance: an offline session's scrobbles replay correctly on reconnect; the

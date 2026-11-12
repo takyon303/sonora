@@ -399,6 +399,10 @@ pub struct Settings {
     pub lastfm_shared_secret: Option<String>,
     /// The session key from a completed Last.fm sign-in. Scrobbles carry it.
     pub lastfm_session_key: Option<String>,
+    /// Publish what is playing to Discord Rich Presence. Off by default.
+    pub discord_presence: bool,
+    /// The Discord application id the presence is registered under.
+    pub discord_app_id: Option<String>,
     pub folder_template: FolderTemplate,
     pub artwork: ArtworkSettings,
     /// Automatic device sync when a device is plugged in. Opt-in, desktop only.
@@ -434,6 +438,8 @@ impl Default for Settings {
             lastfm_api_key: None,
             lastfm_shared_secret: None,
             lastfm_session_key: None,
+            discord_presence: false,
+            discord_app_id: None,
             folder_template: FolderTemplate::default(),
             artwork: ArtworkSettings::default(),
             device_sync_enabled: false,
@@ -465,6 +471,7 @@ impl Settings {
         self.lastfm_api_key = trim_credential(self.lastfm_api_key.take());
         self.lastfm_shared_secret = trim_credential(self.lastfm_shared_secret.take());
         self.lastfm_session_key = trim_credential(self.lastfm_session_key.take());
+        self.discord_app_id = trim_credential(self.discord_app_id.take());
         if self.folder_template.as_str().trim().is_empty() {
             self.folder_template = FolderTemplate::default();
         }
@@ -717,6 +724,12 @@ mod tests {
         .unwrap();
         assert_eq!(settings.lastfm_shared_secret.as_deref(), Some("s3cret"));
         assert_eq!(settings.lastfm_session_key, None);
+
+        let settings = Settings::from_json(r#"{"discord_app_id": "  42  "}"#).unwrap();
+        assert_eq!(settings.discord_app_id.as_deref(), Some("42"));
+        assert!(!settings.discord_presence, "presence is opt-in");
+        let settings = Settings::from_json(r#"{"discord_app_id": " "}"#).unwrap();
+        assert_eq!(settings.discord_app_id, None);
     }
 
     #[test]
