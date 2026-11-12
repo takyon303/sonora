@@ -11,8 +11,6 @@
 //! properties that actually changed, and commands wait in a queue the UI drains
 //! on the same poll. Nothing here owns playback; it is a view and a remote.
 
-use std::sync::{Mutex, MutexGuard};
-
 /// The bus name a shell looks for. Sonora only ever publishes one instance, so
 /// the name carries no pid suffix.
 pub const BUS_NAME: &str = "org.mpris.MediaPlayer2.sonora";
@@ -132,7 +130,8 @@ pub enum Command {
 ///
 /// A panic on the publisher thread must not take playback commands down with
 /// it, and every piece of state behind these locks is plain data.
-pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+#[cfg(target_os = "linux")]
+pub(crate) fn lock<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     match mutex.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
