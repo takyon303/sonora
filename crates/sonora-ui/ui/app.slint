@@ -2608,11 +2608,16 @@ export component AppWindow inherits Window {
     in property <string> album-artist: "";
     in property <int> album-artist-id: 0;
     in property <string> album-meta: "";
+    // The release's own file whose embedded art heads the album page.
+    in property <int> album-cover-track: 0;
+    in property <string> album-cover-key: "";
     in property <string> album-back: "albums";
     in property <[AlbumRow]> artist-albums;
     in property <[TrackRow]> artist-tracks;
     in property <string> artist-name: "";
     in property <string> artist-meta: "";
+    // Fetched artist photo; empty until one is known.
+    in property <image> artist-artwork;
     in property <string> artist-back: "albums";
     in property <[FolderRow]> folders;
     in property <[PlaylistRow]> playlists;
@@ -4311,6 +4316,13 @@ export component AppWindow inherits Window {
                         HorizontalLayout {
                             spacing: 12px;
 
+                            SongCover {
+                                width: 56px;
+                                height: 56px;
+                                track-id: root.album-cover-track;
+                                key: root.album-cover-key;
+                            }
+
                             VerticalLayout {
                                 alignment: start;
                                 spacing: 4px;
@@ -4411,6 +4423,21 @@ export component AppWindow inherits Window {
 
                         HorizontalLayout {
                             spacing: 12px;
+
+                            Rectangle {
+                                width: 84px;
+                                height: 84px;
+                                border-radius: 8px;
+                                clip: true;
+                                background: Palette.panel;
+
+                                if root.artist-artwork.width > 0: Image {
+                                    width: parent.width;
+                                    height: parent.height;
+                                    source: root.artist-artwork;
+                                    image-fit: cover;
+                                }
+                            }
 
                             VerticalLayout {
                                 alignment: start;

@@ -60,6 +60,57 @@ pub fn find_cover(http: &dyn Http, query: &TrackQuery) -> Result<Option<Cover>> 
     Ok(None)
 }
 
+/// Find a photo for an artist.
+///
+/// Deezer's artist search is keyless and offers several sizes; the extra-large
+/// one is still small enough to keep beside the library as an offline copy.
+pub fn find_artist_image(http: &dyn Http, artist: &str) -> Result<Option<Cover>> {
+    let artist = artist.trim();
+    if artist.is_empty() {
+        return Ok(None);
+    }
+    let url = format!(
+        "https://api.deezer.com/search/artist?q={}&limit=1",
+        encode(artist)
+    );
+    let Some(picture) = http
+        .get(&url)
+        .ok()
+        .and_then(|body| parse_deezer_artist_picture(&body))
+    else {
+        return Ok(None);
+    };
+
+    match http.get(&picture) {
+        Ok(bytes) if is_image(&bytes) => Ok(Some(Cover {
+            bytes,
+            source: CoverSource::Deezer,
+            url: picture,
+        })),
+        Ok(_) => {
+            log::warn!("Deezer returned something that is not an artist photo");
+            Ok(None)
+        }
+        Err(err) => {
+            log::debug!("no artist photo for {artist}: {err}");
+            Ok(None)
+        }
+    }
+}
+
+fn parse_deezer_artist_picture(body: &[u8]) -> Option<String> {
+    let value: Value = serde_json::from_slice(body).ok()?;
+    let artist = value.get("data")?.as_array()?.first()?;
+    for key in ["picture_xl", "picture_big", "picture_medium"] {
+        if let Some(url) = artist.get(key).and_then(Value::as_str) {
+            if !url.is_empty() {
+                return Some(url.to_string());
+            }
+        }
+    }
+    None
+}
+
 fn candidate_url(http: &dyn Http, source: CoverSource, query: &TrackQuery) -> Option<String> {
     match source {
         CoverSource::CoverArtArchive => musicbrainz_release_id(http, query)
@@ -287,6 +338,54 @@ mod tests {
             .insert(cover_url.to_string(), b"<html>rate limited</html>".to_vec());
 
         assert_eq!(find_cover(&stub, &query()).unwrap(), None);
+    }
+
+    #[test]
+    fn prefers_the_largest_artist_picture() {
+        let body =
+            r#"{"data":[{"picture_medium":"m.jpg","picture_big":"b.jpg","picture_xl":"xl.jpg"}]}"#;
+        assert_eq!(
+            parse_deezer_artist_picture(body.as_bytes()).as_deref(),
+            Some("xl.jpg")
+        );
+        assert_eq!(parse_deezer_artist_picture(br#"{"data":[]}"#), None);
+        assert_eq!(parse_deezer_artist_picture(b"{}"), None);
+    }
+
+    #[test]
+    fn an_artist_photo_comes_back_with_its_bytes() {
+        let search = format!(
+            "https://api.deezer.com/search/artist?q={}&limit=1",
+            encode("Nils Frahm")
+        );
+        let mut stub = Stub::json(vec![(
+            &search,
+            r#"{"data":[{"picture_xl":"https://cdn.deezer.com/artist.jpg"}]}"#,
+        )]);
+        stub.routes.insert(
+            "https://cdn.deezer.com/artist.jpg".to_string(),
+            PNG.to_vec(),
+        );
+
+        let photo = find_artist_image(&stub, "Nils Frahm")
+            .unwrap()
+            .expect("photo");
+        assert_eq!(photo.source, CoverSource::Deezer);
+        assert_eq!(photo.bytes, PNG);
+        assert_eq!(photo.url, "https://cdn.deezer.com/artist.jpg");
+    }
+
+    #[test]
+    fn an_artist_without_a_photo_is_not_an_error() {
+        let stub = Stub::json(vec![(
+            &format!(
+                "https://api.deezer.com/search/artist?q={}&limit=1",
+                encode("Nobody")
+            ),
+            "{}",
+        )]);
+        assert_eq!(find_artist_image(&stub, "Nobody").unwrap(), None);
+        assert_eq!(find_artist_image(&stub, "   ").unwrap(), None);
     }
 
     #[test]

@@ -154,10 +154,15 @@ Delivered:
   the page follows the result; Cancel restores what was there before. The
   state machine lives in `sonora_core::lyrics` and is unit-tested without a
   window.
+- Artist and album profiles with pictures. An artist page heads its name with a
+  photo from Deezer's keyless artist search, stored in the library
+  (`artist_images`, one row per artist) so the profile opens offline and a
+  second visit costs no request; the decode happens off the UI thread.
+  An album page heads its title with the release's own embedded cover,
+  through the same bounded artwork cache the rows and cards use.
 
 Still open:
 
-- Artist and album profiles with pictures.
 - Last.fm (needs a free developer API key): auth, scrobbling with an offline
   queue, now-playing, loved tracks, charts, similar artists, recommendations,
   cached responses.

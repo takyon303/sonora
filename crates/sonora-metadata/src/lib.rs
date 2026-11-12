@@ -21,7 +21,7 @@ pub mod http;
 pub mod lastfm;
 pub mod lyrics;
 
-pub use artwork::{find_cover, Cover, CoverSource};
+pub use artwork::{find_artist_image, find_cover, Cover, CoverSource};
 pub use cache::DiskCache;
 pub use http::{Http, HttpError, UreqHttp};
 pub use lastfm::LastFm;

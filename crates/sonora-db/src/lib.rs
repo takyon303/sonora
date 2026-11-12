@@ -353,6 +353,41 @@ impl Db {
         Ok(rows.iter().map(map_track).collect())
     }
 
+    /// Store the photo shown on an artist page, replacing an older one.
+    pub async fn save_artist_image(
+        &self,
+        artist: ArtistId,
+        image: &[u8],
+        source: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO artist_images (artist_id, image, source, fetched_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (artist_id) DO UPDATE SET
+                 image = excluded.image,
+                 source = excluded.source,
+                 fetched_at = excluded.fetched_at",
+        )
+        .bind(artist)
+        .bind(image)
+        .bind(source)
+        .bind(now())
+        .execute(&self.pool)
+        .await
+        .db()?;
+        Ok(())
+    }
+
+    /// The stored photo for an artist, if one was ever fetched.
+    pub async fn artist_image(&self, artist: ArtistId) -> Result<Option<Vec<u8>>> {
+        let row = sqlx::query("SELECT image FROM artist_images WHERE artist_id = ?1")
+            .bind(artist)
+            .fetch_optional(&self.pool)
+            .await
+            .db()?;
+        Ok(row.map(|row| row.get::<Vec<u8>, _>("image")))
+    }
+
     /// Every track on one album, in the order the album was recorded.
     ///
     /// Disc and track numbers come from tags, so they are missing on loose
@@ -1955,6 +1990,42 @@ mod tests {
         assert_eq!(cover.file_size, 1024);
 
         assert!(db.album_tracks(9_999).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn artist_images_are_stored_once_per_artist() {
+        let db = Db::open_in_memory().await.unwrap();
+        let folder = db.add_folder(Path::new("/music")).await.unwrap();
+        let run = db.begin_scan().await.unwrap();
+        let track = track("/music/1.mp3", "Xtal", "Aphex Twin", "SAW 85-92");
+        db.upsert_scanned(folder, run, &[track]).await.unwrap();
+
+        let artist = db
+            .artists()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|artist| artist.name == "Aphex Twin")
+            .expect("artist")
+            .id;
+        assert_eq!(db.artist_image(artist).await.unwrap(), None);
+
+        db.save_artist_image(artist, b"first photo", "Deezer")
+            .await
+            .unwrap();
+        assert_eq!(
+            db.artist_image(artist).await.unwrap().as_deref(),
+            Some(&b"first photo"[..])
+        );
+
+        db.save_artist_image(artist, b"better photo", "Deezer")
+            .await
+            .unwrap();
+        assert_eq!(
+            db.artist_image(artist).await.unwrap().as_deref(),
+            Some(&b"better photo"[..]),
+            "a second fetch replaces the picture instead of adding a row"
+        );
     }
 
     #[tokio::test]

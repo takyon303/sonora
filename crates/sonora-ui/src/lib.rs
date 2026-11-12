@@ -47,6 +47,9 @@ const PAGE_LIMIT: i64 = 500;
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// The design uses a 250px cover; 512px also covers double-density displays.
 const ARTWORK_PX: u32 = 512;
+/// Artist photos head a small square on the profile; 320px covers eye and
+/// double-density displays without keeping a full-size photo in memory.
+const ARTIST_ART_PX: u32 = 320;
 const QUEUE_ARTWORK_PX: u32 = 128;
 const BACKDROP_WIDTH: u32 = 480;
 const BACKDROP_HEIGHT: u32 = 270;
@@ -1217,6 +1220,12 @@ fn attach_playback(
                 let counts = format!("{} tracks · {}", tracks.len(), format_duration(total_ms));
                 let order: Vec<TrackId> = tracks.iter().map(|track| track.id).collect();
                 let rows = track_rows(&tracks);
+                let cover = album.cover.as_ref().map(|cover| {
+                    (
+                        cover.track_id,
+                        cover_key(cover.track_id, &cover.path, cover.file_size),
+                    )
+                });
                 // Coming from an artist page, Back returns there; otherwise Back
                 // leads out to the album list.
                 let back = if lock(&lookup).artist.is_some() {
@@ -1238,6 +1247,16 @@ fn attach_playback(
                     ui.set_album_artist(album.album_artist.into());
                     ui.set_album_artist_id(saturating_i32(album.album_artist_id as u64));
                     ui.set_album_meta(counts.into());
+                    match cover {
+                        Some((track, key)) => {
+                            ui.set_album_cover_track(saturating_i32(track.max(0) as u64));
+                            ui.set_album_cover_key(key.into());
+                        }
+                        None => {
+                            ui.set_album_cover_track(0);
+                            ui.set_album_cover_key(SharedString::new());
+                        }
+                    }
                     ui.set_album_back(back.into());
                     ui.set_album_tracks(model(rows));
                     ui.set_section("album".into());
@@ -1333,6 +1352,40 @@ fn attach_playback(
                 let order: Vec<TrackId> = tracks.iter().map(|track| track.id).collect();
                 let album_rows = album_rows(&albums);
                 let rows = track_rows(&tracks);
+                // A photo fetched once is kept beside the library, so a profile
+                // opens offline; a miss asks the keyless provider now. The
+                // request runs on a blocking thread like every other provider.
+                let mut photo = db.artist_image(artist_id).await.ok().flatten();
+                if photo.is_none() {
+                    let name_for_fetch = name.clone();
+                    let fetched = tokio::task::spawn_blocking(move || {
+                        let http = sonora_metadata::UreqHttp::new(sonora_metadata::USER_AGENT);
+                        sonora_metadata::find_artist_image(&http, &name_for_fetch)
+                            .ok()
+                            .flatten()
+                    })
+                    .await
+                    .ok()
+                    .flatten();
+                    if let Some(found) = fetched {
+                        if let Err(err) = db
+                            .save_artist_image(artist_id, &found.bytes, found.source.label())
+                            .await
+                        {
+                            log::warn!("could not keep the photo for {name}: {err}");
+                        }
+                        photo = Some(found.bytes);
+                    }
+                }
+                let picture = match photo {
+                    Some(bytes) => {
+                        tokio::task::spawn_blocking(move || image_pixels(&bytes, ARTIST_ART_PX))
+                            .await
+                            .ok()
+                            .flatten()
+                    }
+                    None => None,
+                };
                 // The album page keeps its state while an artist page is open, so
                 // Back can return to the release the artist was opened from.
                 let back = if lock(&lookup).album.is_some() {
@@ -1352,6 +1405,7 @@ fn attach_playback(
                 }
 
                 let _ = weak.upgrade_in_event_loop(move |ui| {
+                    ui.set_artist_artwork(pixel_image(picture));
                     ui.set_artist_name(name.into());
                     ui.set_artist_meta(meta.into());
                     ui.set_artist_back(back.into());
@@ -3047,7 +3101,13 @@ fn pixel_image(pixels: Option<CoverPixels>) -> slint::Image {
 /// normal, so this returns `None` instead of an error.
 fn cover_pixels(path: &Path, max_dimension: u32) -> Option<CoverPixels> {
     let raw = sonora_artwork::extract_embedded(path).ok().flatten()?;
-    let decoded = image::load_from_memory(&raw).ok()?;
+    image_pixels(&raw, max_dimension)
+}
+
+/// Downscaled RGBA pixels of an image already in memory, for pictures that do
+/// not come from a track (an artist photo kept in the library database).
+fn image_pixels(raw: &[u8], max_dimension: u32) -> Option<CoverPixels> {
+    let decoded = image::load_from_memory(raw).ok()?;
     let thumb = decoded.thumbnail(max_dimension, max_dimension).to_rgba8();
     Some((thumb.as_raw().clone(), thumb.width(), thumb.height()))
 }
