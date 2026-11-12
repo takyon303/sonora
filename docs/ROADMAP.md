@@ -145,6 +145,15 @@ Delivered:
   through. Manual scrolling suspends following; the Follow playback control
   appears only while following is off, and the queue rail can be opened beside
   the page instead of replacing it.
+- Lyric editing: the lyrics page gains a Sync mode. It splits a plain lyric
+  into lines, shows the line the next tap will take, and a Stamp button
+  times that line at the playhead before moving on. Undo frees the last
+  stamp, and an already-synced lyric can be corrected line by line. Save
+  writes only the lines that were timed (an untimed line is left out
+  rather than guessed at) as `hand-synced` LRC, ordered by playback, and
+  the page follows the result; Cancel restores what was there before. The
+  state machine lives in `sonora_core::lyrics` and is unit-tested without a
+  window.
 
 Still open:
 
@@ -152,7 +161,6 @@ Still open:
 - Last.fm (needs a free developer API key): auth, scrobbling with an offline
   queue, now-playing, loved tracks, charts, similar artists, recommendations,
   cached responses.
-- Lyric editing: hand-syncing a plain lyric, or fixing a bad LRC.
 - Discord Rich Presence (hidden while paused, fully disableable): RPC/IPC on
   desktop, and on Android through the Discord Social SDK, which publishes
   presence without account linking when the Discord app is installed and signed

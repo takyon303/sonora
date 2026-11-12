@@ -2162,8 +2162,18 @@ component LyricsPanel inherits Rectangle {
     // Synced lyrics arrive as timed lines; the active one follows playback.
     in property <[string]> lines: [];
     in property <int> active: -1;
+    // Hand-timing a plain lyric: the pane shows its lines and the one the next
+    // stamp will take.
+    in property <bool> syncing: false;
+    in property <bool> can-sync: false;
+    in property <string> hint: "";
 
     callback close();
+    callback sync-start();
+    callback sync-stamp();
+    callback sync-undo();
+    callback sync-save();
+    callback sync-cancel();
 
     // Shield swallows clicks so nothing underneath reacts.
     shield := TouchArea {
@@ -2230,6 +2240,36 @@ component LyricsPanel inherits Rectangle {
                 vertical-alignment: center;
             }
 
+            if root.can-sync && !root.syncing: ActionButton {
+                label: "Sync";
+                primary: false;
+                clicked => { root.sync-start(); }
+            }
+
+            if root.syncing: ActionButton {
+                label: "Stamp";
+                primary: true;
+                clicked => { root.sync-stamp(); }
+            }
+
+            if root.syncing: ActionButton {
+                label: "Undo";
+                primary: false;
+                clicked => { root.sync-undo(); }
+            }
+
+            if root.syncing: ActionButton {
+                label: "Save";
+                primary: true;
+                clicked => { root.sync-save(); }
+            }
+
+            if root.syncing: ActionButton {
+                label: "Cancel";
+                primary: false;
+                clicked => { root.sync-cancel(); }
+            }
+
             ActionButton {
                 label: "Close";
                 primary: false;
@@ -2237,6 +2277,13 @@ component LyricsPanel inherits Rectangle {
                     root.close();
                 }
             }
+        }
+
+        if root.hint != "": Text {
+            text: root.hint;
+            color: Palette.muted;
+            font-size: 10px;
+            wrap: word-wrap;
         }
 
         // Following is the normal state, so the control only shows up once the
@@ -2637,6 +2684,9 @@ export component AppWindow inherits Window {
     in property <string> lyrics-status: "";
     in property <[string]> lyric-lines: [];
     in property <int> lyric-active: -1;
+    in property <bool> lyric-syncing: false;
+    in property <bool> lyric-can-sync: false;
+    in property <string> lyric-hint: "";
     in property <image> artwork;
     in property <int> current-count: 0;
     in property <int> upcoming-count: 0;
@@ -2733,6 +2783,11 @@ export component AppWindow inherits Window {
     callback onboarding-finish();
     callback run-onboarding();
     callback lyrics-toggle();
+    callback lyrics-sync-start();
+    callback lyrics-sync-stamp();
+    callback lyrics-sync-undo();
+    callback lyrics-sync-save();
+    callback lyrics-sync-cancel();
     callback playlist-open(int);
     callback playlist-create(string);
     callback playlist-rename(string);
@@ -4477,6 +4532,14 @@ export component AppWindow inherits Window {
                 status: root.lyrics-status;
                 lines: root.lyric-lines;
                 active: root.lyric-active;
+                syncing: root.lyric-syncing;
+                can-sync: root.lyric-can-sync;
+                hint: root.lyric-hint;
+                sync-start => { root.lyrics-sync-start(); }
+                sync-stamp => { root.lyrics-sync-stamp(); }
+                sync-undo => { root.lyrics-sync-undo(); }
+                sync-save => { root.lyrics-sync-save(); }
+                sync-cancel => { root.lyrics-sync-cancel(); }
                 close => { root.lyrics-open = false; }
             }
         }

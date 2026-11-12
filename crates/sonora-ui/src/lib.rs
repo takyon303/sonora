@@ -16,6 +16,7 @@ mod transport;
 use transport::{PlaybackHandle, PlaybackWorker};
 
 use slint::{ComponentHandle, ModelRc, SharedString, Timer, TimerMode, VecModel, Weak};
+use sonora_core::lyrics::{parse_lrc_timestamp, LyricSync};
 use sonora_core::{
     format_duration, AlbumId, AppearanceSettings, ArtistId, ArtworkFormat, Event, FolderTemplate,
     FormatPreference, FormatTier, HistoryRetention, PlaylistId, PlaylistRules, Settings, TrackId,
@@ -1653,11 +1654,15 @@ fn attach_playback(
 
         // Synced lyrics follow the transport: the line whose timestamp has been
         // passed is the one shown as current, and -1 before the first line.
-        let active = {
-            let lines = lock(&timer_timed.timed);
-            current_lyric_index(&lines, position)
-        };
-        ui.set_lyric_active(active);
+        // Hand-timing owns the highlight while it runs: the pane points at the
+        // line the next tap takes, not at whatever playback has reached.
+        if !ui.get_lyric_syncing() {
+            let active = {
+                let lines = lock(&timer_timed.timed);
+                current_lyric_index(&lines, position)
+            };
+            ui.set_lyric_active(active);
+        }
     });
     timer
 }
@@ -2634,6 +2639,165 @@ fn wire_lyrics(
     engine: Arc<Engine>,
     loader: LyricsLoader,
 ) {
+    // Everything the hand-timing buttons need lives here, next to the pane they
+    // repaint. A session holds the lyrics as they were when Sync was pressed, so
+    // Cancel puts the page back instead of reloading from the network.
+    let session: Arc<Mutex<Option<ManualSync>>> = Arc::new(Mutex::new(None));
+
+    {
+        let weak = weak.clone();
+        let engine = engine.clone();
+        let loader = loader.clone();
+        let session = session.clone();
+        ui.on_lyrics_sync_start(move || {
+            let Some(window) = weak.upgrade() else {
+                return;
+            };
+            let Some(track) = engine.current() else {
+                window.set_lyric_hint("Start playback before timing a lyric.".into());
+                return;
+            };
+            let timed = lock(&loader.timed).clone();
+            let plain = window.get_lyrics_text().to_string();
+            let (sync, original) = if timed.is_empty() {
+                (LyricSync::from_plain(&plain), None)
+            } else {
+                let rebuilt = LyricSync::from_timed(&timed).to_lrc();
+                (LyricSync::from_timed(&timed), Some(rebuilt))
+            };
+            if sync.lines().is_empty() {
+                window.set_lyric_hint("There are no lyrics to time yet.".into());
+                return;
+            }
+            let mut guard = lock(&session);
+            *guard = Some(ManualSync {
+                track,
+                plain,
+                original,
+                sync,
+            });
+            if let Some(current) = guard.as_ref() {
+                show_sync(&window, current);
+            }
+            window.set_lyric_syncing(true);
+            window.set_lyrics_status("Timing by hand".into());
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let engine = engine.clone();
+        let session = session.clone();
+        ui.on_lyrics_sync_stamp(move || {
+            let Some(window) = weak.upgrade() else {
+                return;
+            };
+            let Some(position) = engine.position_ms() else {
+                window.set_lyric_hint("The playback position is not available yet.".into());
+                return;
+            };
+            let mut guard = lock(&session);
+            match guard.as_ref() {
+                Some(current) if engine.current() == Some(current.track) => {}
+                Some(_) => {
+                    *guard = None;
+                    window.set_lyric_syncing(false);
+                    window.set_lyric_hint("The track changed, so timing stopped.".into());
+                    return;
+                }
+                None => return,
+            }
+            if let Some(current) = guard.as_mut() {
+                current.sync.stamp(position);
+                show_sync(&window, current);
+            }
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let session = session.clone();
+        ui.on_lyrics_sync_undo(move || {
+            let Some(window) = weak.upgrade() else {
+                return;
+            };
+            let mut guard = lock(&session);
+            if let Some(current) = guard.as_mut() {
+                current.sync.undo();
+                show_sync(&window, current);
+            }
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let db = db.clone();
+        let handle = handle.clone();
+        let loader = loader.clone();
+        let session = session.clone();
+        ui.on_lyrics_sync_save(move || {
+            let Some(window) = weak.upgrade() else {
+                return;
+            };
+            let (track, plain, lrc, timed) = {
+                let guard = lock(&session);
+                let Some(current) = guard.as_ref() else {
+                    return;
+                };
+                (
+                    current.track,
+                    current.plain.clone(),
+                    current.sync.to_lrc(),
+                    current.sync.lines().len() - current.sync.untimed(),
+                )
+            };
+            if timed == 0 {
+                window.set_lyric_hint("Stamp at least one line before saving.".into());
+                return;
+            }
+            let weak = weak.clone();
+            let db = db.clone();
+            let loader = loader.clone();
+            let session = session.clone();
+            handle.spawn(async move {
+                match db
+                    .save_lyrics(track, Some(&plain), Some(&lrc), "hand-synced")
+                    .await
+                {
+                    Ok(()) => {
+                        *lock(&session) = None;
+                        let _ = weak.upgrade_in_event_loop(move |ui| {
+                            show_lyrics(&ui, &loader.timed, &plain, Some(&lrc));
+                            ui.set_lyrics_status(format!("Timed {timed} lines by hand.").into());
+                        });
+                    }
+                    Err(err) => set_error(&weak, format!("Could not save lyrics: {err}")),
+                }
+            });
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let loader = loader.clone();
+        let session = session.clone();
+        ui.on_lyrics_sync_cancel(move || {
+            let Some(window) = weak.upgrade() else {
+                return;
+            };
+            let Some(current) = lock(&session).take() else {
+                return;
+            };
+            show_lyrics(
+                &window,
+                &loader.timed,
+                &current.plain,
+                current.original.as_deref(),
+            );
+            window.set_lyrics_status(SharedString::new());
+        });
+    }
+
     ui.on_lyrics_toggle(move || {
         let Some(window) = weak.upgrade() else {
             return;
@@ -3085,6 +3249,45 @@ fn lyrics_text(plain: Option<&str>, synced: Option<&str>) -> String {
 /// highlight). A new track replaces the whole vector.
 type TimedLyrics = Arc<Mutex<Vec<(u64, String)>>>;
 
+/// A plain lyric being timed by hand, plus what it takes to put the pane back
+/// the way it was if the listener cancels.
+struct ManualSync {
+    track: TrackId,
+    plain: String,
+    /// The timed payload the pane showed before editing, when there was one.
+    original: Option<String>,
+    sync: LyricSync,
+}
+
+fn plain_lyric_model(lines: &[String]) -> ModelRc<SharedString> {
+    let rows: Vec<SharedString> = lines
+        .iter()
+        .map(|line| SharedString::from(line.as_str()))
+        .collect();
+    ModelRc::from(std::rc::Rc::new(VecModel::from(rows)))
+}
+
+/// Repaint the pane from a hand-sync session: its lines, the one the next tap
+/// takes, and how much of the song is timed.
+fn show_sync(ui: &AppWindow, session: &ManualSync) {
+    ui.set_lyric_lines(plain_lyric_model(session.sync.lines()));
+    ui.set_lyric_active(session.sync.next().map_or(-1, |index| index as i32));
+    ui.set_lyric_hint(sync_hint(session).into());
+}
+
+fn sync_hint(session: &ManualSync) -> String {
+    let total = session.sync.lines().len();
+    let timed = total - session.sync.untimed();
+    if total == 0 {
+        return "There is nothing to time here.".to_string();
+    }
+    if session.sync.untimed() == 0 {
+        format!("All {total} lines are timed. Save when the taps feel right.")
+    } else {
+        format!("{timed} of {total} lines timed. Press Stamp as each line starts.")
+    }
+}
+
 /// Hand loaded lyrics to the pane. Synced payloads are split into timed lines
 /// the player follows; plain payloads stay one block of text.
 fn show_lyrics(ui: &AppWindow, timed: &TimedLyrics, text: &str, synced: Option<&str>) {
@@ -3092,6 +3295,11 @@ fn show_lyrics(ui: &AppWindow, timed: &TimedLyrics, text: &str, synced: Option<&
     ui.set_lyric_lines(lyric_model(&lines));
     ui.set_lyric_active(-1);
     ui.set_lyrics_text(text.into());
+    // Loading a lyric ends any hand-timing that was running: the pane now
+    // shows whatever is saved, not a half-finished edit.
+    ui.set_lyric_can_sync(!lines.is_empty() || !text.trim().is_empty());
+    ui.set_lyric_syncing(false);
+    ui.set_lyric_hint(SharedString::new());
     *lock(timed) = lines;
 }
 
@@ -3132,36 +3340,6 @@ fn parse_lrc_timed(synced: &str) -> Vec<(u64, String)> {
     }
     out.sort_by_key(|(ms, _)| *ms);
     out
-}
-
-fn parse_lrc_timestamp(tag: &str) -> Option<u64> {
-    let (mm, rest) = tag.split_once(':')?;
-    if mm.is_empty() || !mm.chars().all(|c| c.is_ascii_digit()) {
-        return None;
-    }
-    let minutes: u64 = mm.parse().ok()?;
-    let (ss, frac_ms) = if let Some((s, f)) = rest.split_once('.') {
-        let sec: u64 = if !s.is_empty() && s.chars().all(|c| c.is_ascii_digit()) {
-            s.parse().ok()?
-        } else {
-            return None;
-        };
-        let digits: String = f.chars().take_while(|c| c.is_ascii_digit()).collect();
-        let frac = match digits.len() {
-            0 => 0,
-            1 => digits.parse::<u64>().ok()? * 100,
-            2 => digits.parse::<u64>().ok()? * 10,
-            _ => digits[..3].parse::<u64>().ok()?,
-        };
-        (sec, frac)
-    } else {
-        let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-        if digits.is_empty() {
-            return None;
-        }
-        (digits.parse().ok()?, 0)
-    };
-    Some(minutes * 60_000 + ss * 1000 + frac_ms)
 }
 
 /// Index of the timed line that is active at `position_ms`, or -1 when the
@@ -3805,7 +3983,38 @@ mod tests {
 
 #[cfg(test)]
 mod timed_lyrics {
-    use super::{current_lyric_index, parse_lrc_timed, parse_lrc_timestamp};
+    use super::{
+        current_lyric_index, parse_lrc_timed, parse_lrc_timestamp, sync_hint, LyricSync, ManualSync,
+    };
+
+    #[test]
+    fn the_sync_hint_counts_the_lines_that_are_timed() {
+        let mut sync = LyricSync::from_plain("one\ntwo\nthree");
+        sync.stamp(1_000);
+        let session = ManualSync {
+            track: 1,
+            plain: "one\ntwo\nthree".to_string(),
+            original: None,
+            sync,
+        };
+        assert_eq!(
+            sync_hint(&session),
+            "1 of 3 lines timed. Press Stamp as each line starts."
+        );
+
+        let mut sync = LyricSync::from_plain("one");
+        sync.stamp(500);
+        let session = ManualSync {
+            track: 1,
+            plain: "one".to_string(),
+            original: None,
+            sync,
+        };
+        assert_eq!(
+            sync_hint(&session),
+            "All 1 lines are timed. Save when the taps feel right."
+        );
+    }
 
     #[test]
     fn current_lyric_index_returns_negative_one_before_first_line() {

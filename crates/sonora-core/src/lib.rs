@@ -7,6 +7,7 @@
 
 pub mod error;
 pub mod events;
+pub mod lyrics;
 pub mod model;
 pub mod playlists;
 pub mod queue;
