@@ -45,6 +45,8 @@ pub enum MetadataError {
     Http(#[from] HttpError),
     #[error("Last.fm needs an API key; add one in Settings to enable it")]
     MissingApiKey,
+    #[error("Last.fm needs the shared secret that came with the API key")]
+    MissingSecret,
 }
 
 pub type Result<T> = std::result::Result<T, MetadataError>;

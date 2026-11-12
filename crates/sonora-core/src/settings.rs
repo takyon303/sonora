@@ -395,6 +395,10 @@ pub struct Settings {
     pub cache_limit_bytes: u64,
     /// Last.fm API key. Optional: every keyless provider keeps working without it.
     pub lastfm_api_key: Option<String>,
+    /// The shared secret Last.fm issues alongside the key; signed writes need it.
+    pub lastfm_shared_secret: Option<String>,
+    /// The session key from a completed Last.fm sign-in. Scrobbles carry it.
+    pub lastfm_session_key: Option<String>,
     pub folder_template: FolderTemplate,
     pub artwork: ArtworkSettings,
     /// Automatic device sync when a device is plugged in. Opt-in, desktop only.
@@ -412,6 +416,14 @@ pub struct Settings {
     pub muted: bool,
 }
 
+/// Credentials are typed by hand, so surrounding spaces are noise; a value that
+/// is only spaces means the setting was cleared.
+fn trim_credential(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -420,6 +432,8 @@ impl Default for Settings {
             cache_folder: None,
             cache_limit_bytes: DEFAULT_CACHE_LIMIT_BYTES,
             lastfm_api_key: None,
+            lastfm_shared_secret: None,
+            lastfm_session_key: None,
             folder_template: FolderTemplate::default(),
             artwork: ArtworkSettings::default(),
             device_sync_enabled: false,
@@ -447,11 +461,10 @@ impl Settings {
             .cache_limit_bytes
             .clamp(MIN_CACHE_LIMIT_BYTES, u64::MAX);
         self.artwork = self.artwork.normalized();
-        // A blank key means "not configured", not an empty credential.
-        self.lastfm_api_key = self
-            .lastfm_api_key
-            .map(|key| key.trim().to_string())
-            .filter(|key| !key.is_empty());
+        // A blank credential means "not configured", not an empty one.
+        self.lastfm_api_key = trim_credential(self.lastfm_api_key.take());
+        self.lastfm_shared_secret = trim_credential(self.lastfm_shared_secret.take());
+        self.lastfm_session_key = trim_credential(self.lastfm_session_key.take());
         if self.folder_template.as_str().trim().is_empty() {
             self.folder_template = FolderTemplate::default();
         }
@@ -697,6 +710,13 @@ mod tests {
 
         let settings = Settings::from_json(r#"{"lastfm_api_key": "   "}"#).unwrap();
         assert_eq!(settings.lastfm_api_key, None);
+
+        let settings = Settings::from_json(
+            r#"{"lastfm_shared_secret": " s3cret ", "lastfm_session_key": "  "}"#,
+        )
+        .unwrap();
+        assert_eq!(settings.lastfm_shared_secret.as_deref(), Some("s3cret"));
+        assert_eq!(settings.lastfm_session_key, None);
     }
 
     #[test]

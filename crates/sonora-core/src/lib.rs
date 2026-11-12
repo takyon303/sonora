@@ -11,6 +11,7 @@ pub mod lyrics;
 pub mod model;
 pub mod playlists;
 pub mod queue;
+pub mod scrobble;
 pub mod settings;
 pub mod util;
 

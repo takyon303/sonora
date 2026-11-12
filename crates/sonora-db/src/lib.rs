@@ -388,6 +388,93 @@ impl Db {
         Ok(row.map(|row| row.get::<Vec<u8>, _>("image")))
     }
 
+    /// Remember a play that deserves a scrobble, sent when Last.fm is reachable.
+    pub async fn queue_scrobble(
+        &self,
+        track: TrackId,
+        played_at: i64,
+        played_ms: i64,
+    ) -> Result<i64> {
+        let id = sqlx::query(
+            "INSERT INTO scrobbles (track_id, played_at, played_ms, added_at)
+             VALUES (?1, ?2, ?3, ?4)",
+        )
+        .bind(track)
+        .bind(played_at)
+        .bind(played_ms)
+        .bind(now())
+        .execute(&self.pool)
+        .await
+        .db()?
+        .last_insert_rowid();
+        Ok(id)
+    }
+
+    /// Plays still waiting to be reported, oldest first.
+    ///
+    /// The artist, title and album are read now rather than when the play was
+    /// queued, so a tag edit made while the queue drains still goes out right.
+    pub async fn queued_scrobbles(&self, limit: i64) -> Result<Vec<QueuedScrobble>> {
+        let rows = sqlx::query(
+            "SELECT s.id, s.track_id, s.played_at, s.attempts, s.played_ms,
+                    t.title, t.duration_ms, ar.name AS artist, al.title AS album
+             FROM scrobbles s
+             JOIN tracks t ON t.id = s.track_id
+             JOIN artists ar ON ar.id = t.artist_id
+             LEFT JOIN albums al ON al.id = t.album_id
+             ORDER BY s.played_at, s.id
+             LIMIT ?1",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .db()?;
+        Ok(rows
+            .iter()
+            .map(|row| QueuedScrobble {
+                id: row.get("id"),
+                track_id: row.get("track_id"),
+                artist: row.get("artist"),
+                title: row.get("title"),
+                album: row.try_get("album").ok(),
+                duration_ms: row.get("duration_ms"),
+                played_at: row.get("played_at"),
+                played_ms: row.get("played_ms"),
+                attempts: row.get("attempts"),
+            })
+            .collect())
+    }
+
+    /// Drop a play that Last.fm has accepted.
+    pub async fn complete_scrobble(&self, id: i64) -> Result<()> {
+        sqlx::query("DELETE FROM scrobbles WHERE id = ?1")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .db()?;
+        Ok(())
+    }
+
+    /// Keep a play that could not be reported, with the reason, for a retry.
+    pub async fn fail_scrobble(&self, id: i64, error: &str) -> Result<()> {
+        sqlx::query("UPDATE scrobbles SET attempts = attempts + 1, error = ?2 WHERE id = ?1")
+            .bind(id)
+            .bind(error)
+            .execute(&self.pool)
+            .await
+            .db()?;
+        Ok(())
+    }
+
+    /// How many plays are waiting to be reported.
+    pub async fn queued_scrobble_count(&self) -> Result<i64> {
+        let row = sqlx::query("SELECT COUNT(*) AS count FROM scrobbles")
+            .fetch_one(&self.pool)
+            .await
+            .db()?;
+        Ok(row.get("count"))
+    }
+
     /// Every track on one album, in the order the album was recorded.
     ///
     /// Disc and track numbers come from tags, so they are missing on loose
@@ -1487,6 +1574,20 @@ pub struct AlbumCover {
     pub file_size: i64,
 }
 
+/// A play waiting to be reported to Last.fm.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueuedScrobble {
+    pub id: i64,
+    pub track_id: TrackId,
+    pub artist: String,
+    pub title: String,
+    pub album: Option<String>,
+    pub duration_ms: i64,
+    pub played_at: i64,
+    pub played_ms: i64,
+    pub attempts: i64,
+}
+
 /// One row on the Playlists page: a name and how much is in it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlaylistSummary {
@@ -2026,6 +2127,42 @@ mod tests {
             Some(&b"better photo"[..]),
             "a second fetch replaces the picture instead of adding a row"
         );
+    }
+
+    #[tokio::test]
+    async fn queued_scrobbles_survive_until_they_are_reported() {
+        let db = Db::open_in_memory().await.unwrap();
+        let folder = db.add_folder(Path::new("/music")).await.unwrap();
+        let run = db.begin_scan().await.unwrap();
+        let mut x = track("/music/1.mp3", "Xtal", "Aphex Twin", "SAW 85-92");
+        x.duration_ms = 293_000;
+        db.upsert_scanned(folder, run, &[x]).await.unwrap();
+        let id = db.recently_added(1).await.unwrap()[0].id;
+
+        assert_eq!(db.queued_scrobble_count().await.unwrap(), 0);
+        let first = db.queue_scrobble(id, 1_700_000_000, 150_000).await.unwrap();
+        let second = db.queue_scrobble(id, 1_700_000_300, 150_000).await.unwrap();
+
+        let queued = db.queued_scrobbles(10).await.unwrap();
+        assert_eq!(queued.len(), 2);
+        assert_eq!(queued[0].id, first);
+        assert_eq!(queued[0].artist, "Aphex Twin");
+        assert_eq!(queued[0].title, "Xtal");
+        assert_eq!(queued[0].album.as_deref(), Some("SAW 85-92"));
+        assert_eq!(queued[0].duration_ms, 293_000);
+        assert_eq!(queued[0].played_at, 1_700_000_000);
+        assert_eq!(queued[0].attempts, 0);
+
+        db.complete_scrobble(first).await.unwrap();
+        db.fail_scrobble(second, "Last.fm answered HTTP 500")
+            .await
+            .unwrap();
+
+        let queued = db.queued_scrobbles(10).await.unwrap();
+        assert_eq!(queued.len(), 1, "an accepted play leaves the queue");
+        assert_eq!(queued[0].id, second);
+        assert_eq!(queued[0].attempts, 1, "a failed play is kept for a retry");
+        assert_eq!(db.queued_scrobble_count().await.unwrap(), 1);
     }
 
     #[tokio::test]

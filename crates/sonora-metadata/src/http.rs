@@ -8,6 +8,16 @@ use std::time::Duration;
 pub trait Http: Send + Sync {
     /// Fetch a URL and return the response body.
     fn get(&self, url: &str) -> Result<Vec<u8>, HttpError>;
+
+    /// Submit a form-encoded write request and return the response body.
+    ///
+    /// Read-only transports can leave this alone; the default reports that the
+    /// request could not be sent rather than pretending it worked.
+    fn post(&self, _url: &str, _form: &str) -> Result<Vec<u8>, HttpError> {
+        Err(HttpError::Transport(
+            "this transport cannot send write requests".to_string(),
+        ))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,15 +59,28 @@ impl UreqHttp {
 
 impl Http for UreqHttp {
     fn get(&self, url: &str) -> Result<Vec<u8>, HttpError> {
-        match self.agent.get(url).call() {
-            Ok(response) => {
-                let mut body = Vec::new();
-                std::io::Read::read_to_end(&mut response.into_reader(), &mut body)
-                    .map_err(|err| HttpError::Transport(err.to_string()))?;
-                Ok(body)
-            }
-            Err(ureq::Error::Status(code, _)) => Err(HttpError::Status(code)),
-            Err(ureq::Error::Transport(err)) => Err(HttpError::Transport(err.to_string())),
+        read(self.agent.get(url).call())
+    }
+
+    fn post(&self, url: &str, form: &str) -> Result<Vec<u8>, HttpError> {
+        read(
+            self.agent
+                .post(url)
+                .set("Content-Type", "application/x-www-form-urlencoded")
+                .send_string(form),
+        )
+    }
+}
+
+fn read(response: Result<ureq::Response, ureq::Error>) -> Result<Vec<u8>, HttpError> {
+    match response {
+        Ok(response) => {
+            let mut body = Vec::new();
+            std::io::Read::read_to_end(&mut response.into_reader(), &mut body)
+                .map_err(|err| HttpError::Transport(err.to_string()))?;
+            Ok(body)
         }
+        Err(ureq::Error::Status(code, _)) => Err(HttpError::Status(code)),
+        Err(ureq::Error::Transport(err)) => Err(HttpError::Transport(err.to_string())),
     }
 }

@@ -160,6 +160,17 @@ Delivered:
   second visit costs no request; the decode happens off the UI thread.
   An album page heads its title with the release's own embedded cover,
   through the same bounded artwork cache the rows and cards use.
+- Scrobbling to Last.fm. Settings takes the key pair from the listener's
+  developer account and one browser sign-in (a token, the approval page, then
+  the session key); the session key is dropped when the key pair changes, so a
+  stale session can never outlive its credentials. A play counts once it has
+  been listened to — half the track or four minutes, whichever comes first, and
+  never for a track under thirty seconds — and seeking is not listening. Every
+  write is signed with the shared secret. Plays are written to the library
+  first and sent oldest first in the background, so a session that starts
+  offline catches up when the network returns, and now-playing is announced
+  per track. The rule and the watch live in `sonora_core::scrobble` and are
+  tested without a window or a network.
 
 Still open:
 

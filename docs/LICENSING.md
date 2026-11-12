@@ -18,6 +18,7 @@ compatible with every dependency below.
 | `gst-plugins-ugly` | — | GPL for some elements | **Avoided** on licence grounds; WMA is the one listed format that needs its ASF demuxer, so WMA files are indexed but cannot be played |
 | `gst-libav` | — | LGPL-2.1+ | Optional extra codec coverage |
 | `lofty` | 0.25.5 | MIT | Tag reading/writing |
+| `md5` | 0.7 | MIT / Apache-2.0 | Last.fm signs every write (scrobbles, sign-in) with an MD5 digest of its parameters |
 | `zbus` | 5.x | MIT | MPRIS over D-Bus; the Linux desktop's media controls, and already in the tree through Slint's accessibility stack |
 | `sqlx` (SQLite) | 0.8.6 | MIT / Apache-2.0 | Bundled SQLite is public domain |
 | `slint-build` | 1.18.1 | GPL-3.0 / royalty-free / commercial | Build-time only |

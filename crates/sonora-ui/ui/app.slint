@@ -2711,6 +2711,10 @@ export component AppWindow inherits Window {
     in-out property <int> settings-artwork-quality: 90;
     in-out property <string> settings-folder-template: "{album_artist}/{album}/{track_no:02} {title}";
     in-out property <string> settings-lastfm-key: "";
+    in-out property <string> settings-lastfm-secret: "";
+    in-out property <string> settings-lastfm-status: "";
+    // True between asking Last.fm for a token and the listener approving it.
+    in-out property <bool> settings-lastfm-connecting: false;
     in-out property <string> settings-download-folder: "";
     in-out property <string> settings-cache-folder: "";
     in-out property <bool> settings-device-sync: false;
@@ -2768,7 +2772,9 @@ export component AppWindow inherits Window {
     callback volume-changed(float);
     callback queue-move(int, int);
     callback queue-remove(int);
-    callback save-settings(string, int, int, string, int, string, string, string, string, bool, string, int);
+    callback save-settings(string, int, int, string, int, string, string, string, string, string, bool, string, int);
+    callback lastfm-connect(string, string);
+    callback lastfm-finish();
     callback cache-action(bool);
     callback shuffle-toggled();
     callback repeat-toggled();
@@ -3838,7 +3844,7 @@ export component AppWindow inherits Window {
                         }
 
                         Text {
-                            text: "Optional. Last.fm data needs a free API key; every keyless provider keeps working without one.";
+                            text: "Optional. Tags need only the free API key; scrobbling needs the key, its shared secret, and one browser sign-in. Every keyless provider keeps working without any of them.";
                             color: Palette.muted;
                             font-size: 12px;
                             wrap: word-wrap;
@@ -3849,6 +3855,36 @@ export component AppWindow inherits Window {
                             placeholder-text: "API key";
                             edited(text) => {
                                 root.settings-lastfm-key = text;
+                            }
+                        }
+
+                        LineEdit {
+                            text: root.settings-lastfm-secret;
+                            placeholder-text: "Shared secret";
+                            edited(text) => {
+                                root.settings-lastfm-secret = text;
+                            }
+                        }
+
+                        Text {
+                            text: root.settings-lastfm-status;
+                            color: Palette.muted;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+
+                        HorizontalLayout {
+                            spacing: 8px;
+
+                            ActionButton {
+                                label: root.settings-lastfm-connecting ? "I approved it" : "Connect Last.fm";
+                                clicked => {
+                                    if (root.settings-lastfm-connecting) {
+                                        root.lastfm-finish();
+                                    } else {
+                                        root.lastfm-connect(root.settings-lastfm-key, root.settings-lastfm-secret);
+                                    }
+                                }
                             }
                         }
 
@@ -3951,7 +3987,7 @@ export component AppWindow inherits Window {
                         ActionButton {
                             label: "Save settings";
                                 clicked => {
-                                    root.save-settings(root.settings-format-tier, root.bitrate-shown, root.cache-shown, root.settings-artwork-format, root.settings-artwork-quality, root.settings-folder-template, root.settings-lastfm-key, root.settings-download-folder, root.settings-cache-folder, root.settings-device-sync, root.settings-device, root.settings-history-retention);
+                                    root.save-settings(root.settings-format-tier, root.bitrate-shown, root.cache-shown, root.settings-artwork-format, root.settings-artwork-quality, root.settings-folder-template, root.settings-lastfm-key, root.settings-lastfm-secret, root.settings-download-folder, root.settings-cache-folder, root.settings-device-sync, root.settings-device, root.settings-history-retention);
                                 }
                             }
 

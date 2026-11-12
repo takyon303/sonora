@@ -23,6 +23,7 @@ use sonora_core::{
     TrackView, SMART_LIMIT_DEFAULT,
 };
 use sonora_db::{AlbumSummary, Db, HistoryEntry, PlaylistSummary};
+use sonora_metadata::{LastFm, TrackQuery};
 use sonora_mpris::{
     Command as MprisCommand, LoopStatus, Mpris, NowPlaying, PlaybackStatus as MprisStatus,
     PlayerState as MprisPlayerState,
@@ -44,6 +45,9 @@ const RECENT_LIMIT: usize = 8;
 const MOST_PLAYED_LIMIT: i64 = 8;
 const HISTORY_LIMIT: i64 = 200;
 const PAGE_LIMIT: i64 = 500;
+/// How often plays waiting for Last.fm are retried.
+const SCROBBLE_DRAIN_INTERVAL: Duration = Duration::from_secs(30);
+const SCROBBLE_BATCH: i64 = 25;
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// The design uses a 250px cover; 512px also covers double-density displays.
 const ARTWORK_PX: u32 = 512;
@@ -600,6 +604,150 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
     }
 
     {
+        // Last.fm's desktop sign-in: ask for a token, open the approval page,
+        // then trade the approved token for the session key. Both halves reach
+        // the network on a worker thread.
+        let token: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+
+        {
+            let weak = weak.clone();
+            let pending = token.clone();
+            let handle = handle.clone();
+            ui.on_lastfm_connect(move |api_key, shared_secret| {
+                let weak = weak.clone();
+                let pending = pending.clone();
+                let handle = handle.clone();
+                let api_key = api_key.to_string();
+                let shared_secret = shared_secret.to_string();
+                if api_key.trim().is_empty() || shared_secret.trim().is_empty() {
+                    let _ = weak.upgrade_in_event_loop(|ui| {
+                        ui.set_settings_lastfm_connecting(false);
+                        ui.set_settings_lastfm_status(
+                            "Both the API key and the shared secret are needed.".into(),
+                        );
+                    });
+                    return;
+                }
+                let _ = weak.upgrade_in_event_loop(|ui| {
+                    ui.set_settings_lastfm_connecting(true);
+                    ui.set_settings_lastfm_status("Asking Last.fm for a token…".into());
+                });
+                handle.spawn(async move {
+                    let result = tokio::task::spawn_blocking(move || {
+                        let http = sonora_metadata::UreqHttp::new(sonora_metadata::USER_AGENT);
+                        let client = LastFm::with_credentials(api_key, shared_secret);
+                        let token = client.auth_token(&http)?;
+                        let url = client.auth_url(&token);
+                        Ok::<_, sonora_metadata::MetadataError>((token, url))
+                    })
+                    .await;
+                    match result {
+                        Ok(Ok((token, url))) => {
+                            *pending.lock().unwrap() = Some(token);
+                            match open_in_browser(&url) {
+                                Ok(()) => {
+                                    let _ = weak.upgrade_in_event_loop(|ui| {
+                                        ui.set_settings_lastfm_status(
+                                            "Approve Sonora in your browser, then press “I approved it”."
+                                                .into(),
+                                        );
+                                    });
+                                }
+                                Err(err) => {
+                                    log::warn!("could not open the Last.fm page: {err}");
+                                    let _ = weak.upgrade_in_event_loop(move |ui| {
+                                        ui.set_settings_lastfm_status(
+                                            format!(
+                                                "Open this address to approve Sonora, then press “I approved it”: {url}"
+                                            )
+                                            .into(),
+                                        );
+                                    });
+                                }
+                            }
+                        }
+                        Ok(Err(err)) => {
+                            let _ = weak.upgrade_in_event_loop(|ui| {
+                                ui.set_settings_lastfm_connecting(false);
+                            });
+                            set_error(&weak, format!("Last.fm could not start the sign-in: {err}"));
+                        }
+                        Err(err) => {
+                            let _ = weak.upgrade_in_event_loop(|ui| {
+                                ui.set_settings_lastfm_connecting(false);
+                            });
+                            set_error(&weak, format!("The Last.fm sign-in task failed: {err}"));
+                        }
+                    }
+                });
+            });
+        }
+
+        {
+            let weak = weak.clone();
+            let pending = token.clone();
+            let db = ctx.db.clone();
+            let handle = handle.clone();
+            ui.on_lastfm_finish(move || {
+                let weak = weak.clone();
+                let pending = pending.clone();
+                let db = db.clone();
+                let handle = handle.clone();
+                let Some(window) = weak.upgrade() else {
+                    return;
+                };
+                let api_key = window.get_settings_lastfm_key().to_string();
+                let shared_secret = window.get_settings_lastfm_secret().to_string();
+                let Some(token) = pending.lock().unwrap().clone() else {
+                    let _ = weak.upgrade_in_event_loop(|ui| {
+                        ui.set_settings_lastfm_status("Press Connect Last.fm first.".into());
+                    });
+                    return;
+                };
+                handle.spawn(async move {
+                    let exchanged = tokio::task::spawn_blocking(move || {
+                        let http = sonora_metadata::UreqHttp::new(sonora_metadata::USER_AGENT);
+                        LastFm::with_credentials(api_key, shared_secret).auth_session(&http, &token)
+                    })
+                    .await;
+                    let session = match exchanged {
+                        Ok(Ok(session)) => session,
+                        Ok(Err(err)) => {
+                            set_error(&weak, format!("Last.fm did not accept the sign-in: {err}"));
+                            return;
+                        }
+                        Err(err) => {
+                            set_error(&weak, format!("The Last.fm sign-in task failed: {err}"));
+                            return;
+                        }
+                    };
+                    let mut settings = match db.load_settings().await {
+                        Ok(settings) => settings,
+                        Err(err) => {
+                            set_error(&weak, format!("Could not read settings: {err}"));
+                            return;
+                        }
+                    };
+                    settings.lastfm_session_key = Some(session);
+                    let saved = settings.normalized();
+                    match db.save_settings(&saved).await {
+                        Ok(()) => {
+                            let saved = saved.clone();
+                            let _ = weak.upgrade_in_event_loop(move |ui| {
+                                apply_settings(&ui, &saved);
+                                set_status_now(&ui, "Last.fm connected — plays are reported.");
+                            });
+                        }
+                        Err(err) => {
+                            set_error(&weak, format!("Could not save the Last.fm session: {err}"));
+                        }
+                    }
+                });
+            });
+        }
+    }
+
+    {
         let weak = weak.clone();
         let db = ctx.db.clone();
         let handle = handle.clone();
@@ -612,6 +760,7 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
                   quality,
                   template,
                   lastfm_key,
+                  lastfm_secret,
                   download_folder,
                   cache_folder,
                   device_sync,
@@ -658,7 +807,17 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
                     };
                     settings.artwork.quality = quality.clamp(0, 255) as u8;
                     settings.folder_template = FolderTemplate::new(template.to_string());
-                    settings.lastfm_api_key = Some(lastfm_key.to_string());
+                    let previous_key = settings.lastfm_api_key.clone();
+                    let previous_secret = settings.lastfm_shared_secret.clone();
+                    settings.lastfm_api_key = optional_string(lastfm_key.as_str());
+                    settings.lastfm_shared_secret = optional_string(lastfm_secret.as_str());
+                    // A session key belongs to the app it was issued for, so
+                    // editing the key pair means signing in again.
+                    if previous_key != settings.lastfm_api_key
+                        || previous_secret != settings.lastfm_shared_secret
+                    {
+                        settings.lastfm_session_key = None;
+                    }
                     settings.download_folder = optional_path(download_folder.as_str());
                     settings.cache_folder = optional_path(cache_folder.as_str());
                     settings.device_sync_enabled = device_sync;
@@ -1558,6 +1717,10 @@ fn attach_playback(
     // Which track this listening session has already been counted, so pausing
     // and resuming does not inflate the play count.
     let mut recorded: Option<(TrackId, u64)> = None;
+    // Last.fm: the transport decides when a play has been listened to, the
+    // database remembers it, and a worker sends what it can.
+    let mut scrobbles = sonora_core::scrobble::ScrobbleWatch::new();
+    let mut drain_at = Instant::now();
     timer.start(TimerMode::Repeated, POLL_INTERVAL, move || {
         let Some(ui) = timer_weak.upgrade() else {
             return;
@@ -1599,6 +1762,25 @@ fn attach_playback(
             if let Some(track) = audible {
                 if recorded != Some((track, serial)) {
                     recorded = Some((track, serial));
+                    let announce_db = timer_db.clone();
+                    timer_handle.spawn(async move {
+                        // Now-playing is a courtesy: with no connection it is
+                        // simply not sent, and the window never waits for it.
+                        let client = match announce_db.load_settings().await {
+                            Ok(settings) => lastfm_client(&settings),
+                            Err(_) => None,
+                        };
+                        let Some(client) = client else { return };
+                        let Some(view) = announce_db.track(track).await.ok().flatten() else {
+                            return;
+                        };
+                        let query = track_query(&view);
+                        let _ = tokio::task::spawn_blocking(move || {
+                            let http = sonora_metadata::UreqHttp::new(sonora_metadata::USER_AGENT);
+                            client.now_playing(&http, &query)
+                        })
+                        .await;
+                    });
                     let db = timer_db.clone();
                     let weak = timer_weak.clone();
                     timer_handle.spawn(async move {
@@ -1705,6 +1887,37 @@ fn attach_playback(
         ui.set_duration_ms(saturating_i32(duration));
         ui.set_position_label(format_duration(position as i64).into());
         ui.set_duration_label(format_duration(duration as i64).into());
+
+        // A play is written down once it has actually been listened to, not
+        // when it starts. A stopped player forgets the play; a paused one keeps
+        // it, because the position simply stops moving.
+        let watched = if state == PlaybackState::Stopped {
+            None
+        } else {
+            timer_engine.current()
+        };
+        if let Some(scrobble) = scrobbles.observe(
+            watched,
+            position as i64,
+            duration as i64,
+            sonora_core::scrobble::unix_now(),
+        ) {
+            let db = timer_db.clone();
+            let weak = timer_weak.clone();
+            timer_handle.spawn(async move {
+                if let Err(err) = db
+                    .queue_scrobble(scrobble.track, scrobble.started_at, scrobble.played_ms)
+                    .await
+                {
+                    set_error(&weak, format!("Could not queue a Last.fm scrobble: {err}"));
+                }
+            });
+        }
+        if drain_at.elapsed() >= SCROBBLE_DRAIN_INTERVAL {
+            drain_at = Instant::now();
+            let db = timer_db.clone();
+            timer_handle.spawn(async move { drain_scrobbles(db).await });
+        }
 
         // Synced lyrics follow the transport: the line whose timestamp has been
         // passed is the one shown as current, and -1 before the first line.
@@ -3112,6 +3325,108 @@ fn image_pixels(raw: &[u8], max_dimension: u32) -> Option<CoverPixels> {
     Some((thumb.as_raw().clone(), thumb.width(), thumb.height()))
 }
 
+/// One sentence about where the Last.fm connection stands.
+fn lastfm_status(settings: &Settings) -> String {
+    if settings.lastfm_session_key.is_some() {
+        "Connected. Plays are reported to Last.fm, and kept in the library while offline."
+            .to_string()
+    } else if settings.lastfm_api_key.is_some() && settings.lastfm_shared_secret.is_some() {
+        "Not connected yet — press Connect Last.fm to approve this app.".to_string()
+    } else if settings.lastfm_api_key.is_some() {
+        "Add the shared secret Last.fm issued with the key, then connect.".to_string()
+    } else {
+        "Not connected. Scrobbling needs the key pair from your Last.fm developer account."
+            .to_string()
+    }
+}
+
+/// The Last.fm client for these settings, if the listener has connected.
+fn lastfm_client(settings: &Settings) -> Option<LastFm> {
+    Some(
+        LastFm::with_credentials(
+            settings.lastfm_api_key.as_deref()?,
+            settings.lastfm_shared_secret.as_deref()?,
+        )
+        .with_session(settings.lastfm_session_key.as_deref()?),
+    )
+}
+
+fn track_query(view: &TrackView) -> TrackQuery {
+    TrackQuery {
+        artist: view.artist.clone().unwrap_or_default(),
+        title: view.title.clone(),
+        album: view.album.clone(),
+        duration_ms: Some(view.duration_ms.max(0) as u64),
+    }
+}
+
+/// Send whatever plays are waiting, oldest first. A play Last.fm refuses stays
+/// queued with the reason, so nothing is lost while the network is away.
+async fn drain_scrobbles(db: Db) {
+    let settings = match db.load_settings().await {
+        Ok(settings) => settings,
+        Err(err) => {
+            log::debug!("could not read settings for Last.fm: {err}");
+            return;
+        }
+    };
+    let Some(client) = lastfm_client(&settings) else {
+        return;
+    };
+    let queued = match db.queued_scrobbles(SCROBBLE_BATCH).await {
+        Ok(queued) => queued,
+        Err(err) => {
+            log::debug!("could not read the scrobble queue: {err}");
+            return;
+        }
+    };
+    for entry in queued {
+        let query = TrackQuery {
+            artist: entry.artist.clone(),
+            title: entry.title.clone(),
+            album: entry.album.clone(),
+            duration_ms: Some(entry.duration_ms.max(0) as u64),
+        };
+        let played_at = entry.played_at;
+        let client = client.clone();
+        let sent = tokio::task::spawn_blocking(move || {
+            let http = sonora_metadata::UreqHttp::new(sonora_metadata::USER_AGENT);
+            client.scrobble(&http, &query, played_at)
+        })
+        .await;
+        match sent {
+            Ok(Ok(())) => {
+                if let Err(err) = db.complete_scrobble(entry.id).await {
+                    log::debug!("could not drop a sent scrobble: {err}");
+                }
+            }
+            Ok(Err(err)) => {
+                log::debug!("Last.fm refused a scrobble: {err}");
+                let _ = db.fail_scrobble(entry.id, &err.to_string()).await;
+            }
+            Err(err) => {
+                log::warn!("could not send a scrobble: {err}");
+                break;
+            }
+        }
+    }
+}
+
+/// Hand a sign-in address to the desktop's browser. The listener approves
+/// Sonora there; nothing about the account passes through this app.
+fn open_in_browser(url: &str) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    let opener = "open";
+    #[cfg(target_os = "windows")]
+    let opener = "explorer";
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let opener = "xdg-open";
+    std::process::Command::new(opener)
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+}
+
 fn load_lyrics(
     weak: &Weak<AppWindow>,
     db: &Db,
@@ -3458,6 +3773,15 @@ fn apply_settings(ui: &AppWindow, settings: &Settings) {
     ui.set_settings_artwork_quality(i32::from(settings.artwork.quality));
     ui.set_settings_folder_template(settings.folder_template.as_str().into());
     ui.set_settings_lastfm_key(settings.lastfm_api_key.clone().unwrap_or_default().into());
+    ui.set_settings_lastfm_secret(
+        settings
+            .lastfm_shared_secret
+            .clone()
+            .unwrap_or_default()
+            .into(),
+    );
+    ui.set_settings_lastfm_status(lastfm_status(settings).into());
+    ui.set_settings_lastfm_connecting(false);
     ui.set_settings_download_folder(
         settings
             .download_folder
