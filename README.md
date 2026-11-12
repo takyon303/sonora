@@ -34,7 +34,7 @@ rather than being just another music player, sonora is intended to be a complete
 ### the plan
 
 - **your music, your library** — scan, organise, browse and play your local collection, with proper metadata, artwork, history and playlists.
-- **online stuff** — discover music, retrieve metadata and artwork, look up lyrics and eventually connect your listening activity to last.fm.
+- **online stuff** — discover music, retrieve metadata and artwork, look up lyrics and connect your listening activity to last.fm.
 - **soulseek integration** — search for and download music directly through soulseek, with proper transfer management and library integration.
 - **device synchronisation** — keep external music players in sync with your desktop library, including compatible artwork and folder layouts.
 - **one experience** — a consistent interface across windows, linux and android, with platform-specific features where they make sense.
@@ -50,9 +50,11 @@ sonora is under active development. the project is being built in phases, and no
 **library & organisation**
 - Recursive library scanning for MP3, FLAC, M4A/AAC, OGG, Opus, WAV, AIFF, WavPack, Monkey's Audio, Musepack and WMA.
 - Metadata extraction through `lofty`, with filename fallback when tags are missing.
+- Tag editing from a track's menu: title, artist, album, album artist, year, track and disc are written into the file itself and read back, so only what the format actually stored reaches the library.
+- Embedded artwork writing, plus `cover.jpg`/`cover.png` export that never replaces an existing cover without approval.
 - Incremental rescanning: unchanged files are skipped and deleted files are pruned.
 - SQLite library with FTS5 search, album/artist aggregation and library statistics.
-- Album and artist pages, including album track ordering and artist-wide track browsing.
+- Album and artist pages, including album track ordering, artist-wide track browsing and a picture on both profiles.
 
 **playback & queue**
 - GStreamer-based playback with play/pause, previous/next, seeking and volume control.
@@ -67,27 +69,38 @@ sonora is under active development. the project is being built in phases, and no
 - Most played shelf on Home.
 - ReplayGain support, with track gain taking priority over album gain.
 - Audio output selection, saved for the next restart to keep playback stable.
+- MPRIS media controls on Linux: media keys, lock screen and panel widgets read and drive the transport.
 
 **artwork, metadata & lyrics**
 - Embedded artwork extraction and conversion.
 - Configurable artwork format, quality and maximum dimensions.
 - Content-addressed artwork storage.
+- Artwork in track rows, album cards, the transport bar and both profile headers, decoded off the UI thread through one bounded cache.
+- Artist photos from Deezer's keyless search, kept in the library so a profile opens offline.
 - Online metadata providers through MusicBrainz and other sources.
 - Cover artwork retrieval with multiple provider fallbacks.
 - Lyrics retrieval through LRCLIB, with cached lyrics available offline.
 - Automatic lyrics loading, manual scrolling and synced-line following.
-- Artwork in the playback transport and queue.
+- Hand-synced lyrics: a Sync mode stamps each line at the playhead, undoes a stamp and saves LRC for lines that were actually timed.
+
+**last.fm & discord**
+- Last.fm scrobbling: a play counts under Last.fm's listening rules (half the track or four minutes, never under thirty seconds), is queued in the library and sent when the network allows, and the sign-in is a single browser approval.
+- Discord Rich Presence on desktop, showing the track and `sonora pre-release` while something is playing and hiding itself on pause. Off by default.
 
 **interface & settings**
 - Slint desktop interface with Discover/Home, Tracks, Playlists, Albums, Artists and Settings.
 - Favourites live under Playlists, History opens from Home, and library folders live in Settings.
 - Global library search.
-- Album and artist navigation.
+- First-run onboarding, replayable from Settings.
+- Keyboard shortcuts for playback, seeking, volume, search and the lyrics page.
+- Failures shown as a card that says what went wrong, instead of a disappearing status line.
+- Accessible names and roles on every control, and landmark structure for the page.
+- Panels that move instead of appearing, and rows, cards and buttons that ease between states.
 - Format preference and bitrate ceiling settings.
 - Cache budget, confirmed cache clearing and artwork configuration.
 - Configurable history retention (7 days by default).
 - Configurable library folder template.
-- Last.fm API key configuration.
+- Last.fm key pair and connection, and the Discord application id.
 - Download and cache folder pickers.
 - Device-sync opt-in setting.
 - Queue and Lyrics share one independently scrollable side panel.
@@ -96,17 +109,14 @@ sonora is under active development. the project is being built in phases, and no
 
 the following are either partially implemented or waiting for their respective development phase:
 
-- Artwork displayed throughout album cards and track rows, rather than placeholders.
-- Custom playlists and smart playlists with a rule editor.
-- Last.fm authentication, scrobbling, recommendations, charts and similar artists.
-- Artist and album profiles with pictures.
-- Lyric editing.
-- Discord Rich Presence.
-- MPRIS (Linux) and SMTC (Windows) media controls.
+- Last.fm beyond scrobbling: loved tracks, charts, similar artists and recommendations.
+- Discord Rich Presence on Android, through the Discord Social SDK.
+- SMTC media controls on Windows, and the Android media session.
+- The artwork candidate review screen before a change is applied.
 - External device detection, sync profiles and resumable transfers.
 - Soulseek search, downloads, transfer management and library importing.
 - Android build infrastructure, touch-first interface and background playback.
-- Final onboarding, packaging, accessibility and performance work.
+- Packaging (Windows installer, AppImage/Flatpak, signed APK), GPU and slower-disk performance measurement, and the remaining format gaps (AAC, ALAC, APE, Musepack and AIFF are unverified here; WMA needs a plugin set this project does not ship).
 
 ### platform support
 
