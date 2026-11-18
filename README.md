@@ -60,11 +60,7 @@ sonora is under active development. the project is being built in phases, and no
 - GStreamer-based playback with play/pause, previous/next, seeking and volume control.
 - Gapless playback handover.
 - Persistent playback queue that survives application restarts.
-- Apple Music-style queue behaviour:
-  - Shuffle upcoming tracks without rearranging the currently playing track or history.
-  - Play next and add to queue.
-  - Drag-and-drop queue reordering.
-  - Repeat off / all / one.
+- Apple Music-styled queueing
 - Playback history, play and skip counts, ratings and favourites.
 - Most played shelf on Home.
 - ReplayGain support, with track gain taking priority over album gain.
