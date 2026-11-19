@@ -50,6 +50,9 @@ const SCROBBLE_DRAIN_INTERVAL: Duration = Duration::from_secs(30);
 const SCROBBLE_BATCH: i64 = 25;
 /// How often the presence re-reads the saved settings it follows.
 const PRESENCE_SYNC_INTERVAL: Duration = Duration::from_secs(5);
+/// How many similar artists a profile lists; the tail of Last.fm's list is
+/// mostly noise.
+const SIMILAR_SHOWN: usize = 6;
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// The design uses a 250px cover; 512px also covers double-density displays.
 const ARTWORK_PX: u32 = 512;
@@ -1558,6 +1561,48 @@ fn attach_playback(
                     }
                     None => None,
                 };
+                // Similar artists come from Last.fm when a key is configured,
+                // and the answer is kept so a revisit is offline and instant.
+                let mut similar = db.similar_artists(artist_id).await.ok().flatten();
+                if similar.is_none() {
+                    let key = db
+                        .load_settings()
+                        .await
+                        .ok()
+                        .and_then(|settings| settings.lastfm_api_key);
+                    if let Some(key) = key {
+                        let name_for_fetch = name.clone();
+                        let fetched = tokio::task::spawn_blocking(move || {
+                            let http = sonora_metadata::UreqHttp::new(sonora_metadata::USER_AGENT);
+                            sonora_metadata::LastFm::new(key)
+                                .similar_artists(&http, &name_for_fetch)
+                                .ok()
+                        })
+                        .await
+                        .ok()
+                        .flatten();
+                        if let Some(names) = fetched {
+                            if let Err(err) = db.save_similar_artists(artist_id, &names).await {
+                                log::warn!("could not keep the similar artists for {name}: {err}");
+                            }
+                            similar = Some(names);
+                        }
+                    }
+                }
+                let mut similar_rows = Vec::new();
+                for similar_name in similar.unwrap_or_default().into_iter().take(SIMILAR_SHOWN) {
+                    let id = db
+                        .artist_by_name(&similar_name)
+                        .await
+                        .ok()
+                        .flatten()
+                        .unwrap_or(0);
+                    similar_rows.push(ArtistLink {
+                        id: saturating_i32(id.max(0) as u64),
+                        name: similar_name.into(),
+                        known: id > 0,
+                    });
+                }
                 // The album page keeps its state while an artist page is open, so
                 // Back can return to the release the artist was opened from.
                 let back = if lock(&lookup).album.is_some() {
@@ -1578,6 +1623,7 @@ fn attach_playback(
 
                 let _ = weak.upgrade_in_event_loop(move |ui| {
                     ui.set_artist_artwork(pixel_image(picture));
+                    ui.set_artist_similar(model(similar_rows));
                     ui.set_artist_name(name.into());
                     ui.set_artist_meta(meta.into());
                     ui.set_artist_back(back.into());

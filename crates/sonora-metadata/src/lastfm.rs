@@ -12,6 +12,9 @@ use crate::{encode, MetadataError, Result};
 /// Every Last.fm call — read or write — goes through this one endpoint.
 const API_ROOT: &str = "https://ws.audioscrobbler.com/2.0/";
 
+/// How many similar artists to ask for; the ones past the first few are noise.
+const SIMILAR_LIMIT: usize = 12;
+
 #[derive(Clone)]
 pub struct LastFm {
     api_key: String,
@@ -172,6 +175,23 @@ impl LastFm {
         )
     }
 
+    /// Artists Last.fm considers close to this one, strongest first.
+    pub fn similar_artists_url(&self, artist: &str) -> String {
+        format!(
+            "{API_ROOT}?method=artist.getsimilar&artist={}&limit={SIMILAR_LIMIT}&api_key={}&format=json",
+            encode(artist),
+            encode(self.api_key.trim())
+        )
+    }
+
+    pub fn similar_artists(&self, http: &dyn Http, artist: &str) -> Result<Vec<String>> {
+        if !self.has_key() {
+            return Err(MetadataError::MissingApiKey);
+        }
+        let body = http.get(&self.similar_artists_url(artist))?;
+        parse_similar(&body)
+    }
+
     /// Listener-assigned tags for a track, strongest first.
     pub fn track_tags(&self, http: &dyn Http, artist: &str, track: &str) -> Result<Vec<String>> {
         if !self.has_key() {
@@ -180,6 +200,29 @@ impl LastFm {
         let body = http.get(&self.top_tags_url(artist, track))?;
         parse_tags(&body)
     }
+}
+
+fn parse_similar(body: &[u8]) -> Result<Vec<String>> {
+    let value: Value = serde_json::from_slice(body)
+        .map_err(|err| MetadataError::Parse(format!("Last.fm response: {err}")))?;
+    if let Some(message) = value.get("message").and_then(Value::as_str) {
+        return Err(MetadataError::Parse(format!("Last.fm: {message}")));
+    }
+    // Last.fm answers `{"similarartists":{"artist":[...]}}`, in its own order.
+    let Some(artists) = value
+        .get("similarartists")
+        .and_then(|similar| similar.get("artist"))
+        .and_then(Value::as_array)
+    else {
+        return Ok(Vec::new());
+    };
+    Ok(artists
+        .iter()
+        .filter_map(|artist| artist.get("name").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .collect())
 }
 
 /// The fields every scrobble call carries, from the track as the library knows
@@ -345,6 +388,53 @@ mod tests {
             album: Some("SAW 85-92".to_string()),
             duration_ms: Some(293_000),
         }
+    }
+
+    #[test]
+    fn similar_artists_keep_lastfm_order_and_drop_empties() {
+        let body = r#"{"similarartists":{"artist":[
+            {"name":"Autechre","match":"1"},
+            {"name":"  Plaid  "},
+            {"name":""},
+            {"name":"Bola"}
+        ]}}"#;
+        assert_eq!(
+            parse_similar(body.as_bytes()).unwrap(),
+            vec![
+                "Autechre".to_string(),
+                "Plaid".to_string(),
+                "Bola".to_string()
+            ]
+        );
+        assert!(parse_similar(br#"{"similarartists":{}}"#)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn a_refused_lookup_reports_what_lastfm_said() {
+        let error =
+            parse_similar(br#"{"error":6,"message":"The artist you supplied could not be found"}"#)
+                .unwrap_err();
+        assert!(error.to_string().contains("could not be found"), "{error}");
+    }
+
+    #[test]
+    fn the_similar_artists_url_encodes_the_artist() {
+        let url = LastFm::new("key123").similar_artists_url("Boards of Canada");
+        assert_eq!(
+            url,
+            "https://ws.audioscrobbler.com/2.0/?method=artist.getsimilar&artist=Boards%20of%20Canada&limit=12&api_key=key123&format=json"
+        );
+    }
+
+    #[test]
+    fn similar_artists_need_a_key() {
+        let stub = Stub(HashMap::new());
+        assert!(matches!(
+            LastFm::new(" ").similar_artists(&stub, "Plaid"),
+            Err(MetadataError::MissingApiKey)
+        ));
     }
 
     #[test]

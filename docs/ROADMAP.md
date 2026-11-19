@@ -179,12 +179,16 @@ Delivered:
   `Sonora pre-release`; nothing is published unless a track is playing, so
   pausing or stopping clears the presence instead of freezing it. A machine
   without Discord simply never connects, and the window never waits.
+- Similar artists on the artist page, from Last.fm when a key is configured.
+  The answer is kept beside the library, so a revisit is offline and instant,
+  and so is "Last.fm knows nothing about this one" — that is remembered too
+  rather than asked again on every visit. Names the library also carries open
+  that artist; the rest stay visible as plain text, because there is nowhere
+  to go.
 
 Still open:
 
-- Last.fm (needs a free developer API key): auth, scrobbling with an offline
-  queue, now-playing, loved tracks, charts, similar artists, recommendations,
-  cached responses.
+- Last.fm beyond listening history: loved tracks, charts and recommendations.
 - Discord Rich Presence on Android, through the Discord Social SDK, which
   publishes presence without account linking when the Discord app is installed
   and signed in (SDK 1.10+, Android 7.0+).

@@ -353,6 +353,74 @@ impl Db {
         Ok(rows.iter().map(map_track).collect())
     }
 
+    /// Remember what Last.fm calls similar, replacing an older answer.
+    pub async fn save_similar_artists(&self, artist: ArtistId, names: &[String]) -> Result<()> {
+        let mut tx = self.pool.begin().await.db()?;
+        sqlx::query("DELETE FROM artist_similar WHERE artist_id = ?1")
+            .bind(artist)
+            .execute(&mut *tx)
+            .await
+            .db()?;
+        for (position, name) in names.iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO artist_similar (artist_id, position, name) VALUES (?1, ?2, ?3)",
+            )
+            .bind(artist)
+            .bind(position as i64)
+            .bind(name)
+            .execute(&mut *tx)
+            .await
+            .db()?;
+        }
+        sqlx::query(
+            "INSERT INTO artist_similar_fetched (artist_id, fetched_at) VALUES (?1, ?2)
+             ON CONFLICT (artist_id) DO UPDATE SET fetched_at = excluded.fetched_at",
+        )
+        .bind(artist)
+        .bind(now())
+        .execute(&mut *tx)
+        .await
+        .db()?;
+        tx.commit().await.db()?;
+        Ok(())
+    }
+
+    /// Similar artists for a profile, strongest first.
+    ///
+    /// `None` means Last.fm has not been asked yet; `Some` with nothing in it
+    /// means it was asked and knew nothing.
+    pub async fn similar_artists(&self, artist: ArtistId) -> Result<Option<Vec<String>>> {
+        let asked = sqlx::query("SELECT 1 FROM artist_similar_fetched WHERE artist_id = ?1")
+            .bind(artist)
+            .fetch_optional(&self.pool)
+            .await
+            .db()?;
+        if asked.is_none() {
+            return Ok(None);
+        }
+        let rows =
+            sqlx::query("SELECT name FROM artist_similar WHERE artist_id = ?1 ORDER BY position")
+                .bind(artist)
+                .fetch_all(&self.pool)
+                .await
+                .db()?;
+        Ok(Some(
+            rows.iter()
+                .map(|row| row.get::<String, _>("name"))
+                .collect(),
+        ))
+    }
+
+    /// The library id for an artist name, if this library has one.
+    pub async fn artist_by_name(&self, name: &str) -> Result<Option<ArtistId>> {
+        let row = sqlx::query("SELECT id FROM artists WHERE name = ?1 COLLATE NOCASE")
+            .bind(name.trim())
+            .fetch_optional(&self.pool)
+            .await
+            .db()?;
+        Ok(row.map(|row| row.get("id")))
+    }
+
     /// Store the photo shown on an artist page, replacing an older one.
     pub async fn save_artist_image(
         &self,
@@ -2163,6 +2231,48 @@ mod tests {
         assert_eq!(queued[0].id, second);
         assert_eq!(queued[0].attempts, 1, "a failed play is kept for a retry");
         assert_eq!(db.queued_scrobble_count().await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn similar_artists_are_cached_until_asked_again() {
+        let db = Db::open_in_memory().await.unwrap();
+        let folder = db.add_folder(Path::new("/music")).await.unwrap();
+        let run = db.begin_scan().await.unwrap();
+        let other = track(
+            "/music/2.mp3",
+            "Roygbiv",
+            "Boards of Canada",
+            "Music Has the Right",
+        );
+        db.upsert_scanned(folder, run, &[other]).await.unwrap();
+
+        let artist = db
+            .artists()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|artist| artist.name == "Boards of Canada")
+            .expect("artist")
+            .id;
+
+        assert_eq!(db.similar_artists(artist).await.unwrap(), None);
+        db.save_similar_artists(artist, &["Autechre".to_string(), "Plaid".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(
+            db.similar_artists(artist).await.unwrap(),
+            Some(vec!["Autechre".to_string(), "Plaid".to_string()])
+        );
+
+        // An artist Last.fm knows nothing about is still marked as asked.
+        db.save_similar_artists(artist, &[]).await.unwrap();
+        assert_eq!(db.similar_artists(artist).await.unwrap(), Some(Vec::new()));
+
+        assert_eq!(
+            db.artist_by_name("boards of canada").await.unwrap(),
+            Some(artist)
+        );
+        assert_eq!(db.artist_by_name("Nobody").await.unwrap(), None);
     }
 
     #[tokio::test]

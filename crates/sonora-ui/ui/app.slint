@@ -358,6 +358,14 @@ export struct TrackRow {
     replay_gain: string,
 }
 
+// One artist Last.fm calls similar. Names the library does not have are still
+// worth showing, but only names it does have lead anywhere.
+export struct ArtistLink {
+    id: int,
+    name: string,
+    known: bool,
+}
+
 export struct AlbumRow {
     id: int,
     title: string,
@@ -2614,6 +2622,7 @@ export component AppWindow inherits Window {
     in property <string> album-back: "albums";
     in property <[AlbumRow]> artist-albums;
     in property <[TrackRow]> artist-tracks;
+    in property <[ArtistLink]> artist-similar;
     in property <string> artist-name: "";
     in property <string> artist-meta: "";
     // Fetched artist photo; empty until one is known.
@@ -4599,6 +4608,35 @@ export component AppWindow inherits Window {
                             menu-requested(t, rm, ad) => { root.menu-requested(t, rm, ad); }
                             press-armed(t, rm, ad) => { root.press-armed(t, rm, ad); }
                             press-released() => { root.press-released(); }
+                        }
+
+                        if root.artist-similar.length > 0: Text {
+                            text: "Similar artists";
+                            color: Palette.text;
+                            font-size: 14px;
+                            font-weight: 600;
+                        }
+
+                        // Names this library does not carry stay visible but are
+                        // not links: there is nowhere to go.
+                        for item in root.artist-similar: Rectangle {
+                            height: 22px;
+                            background: transparent;
+
+                            Text {
+                                text: item.name;
+                                color: item.known ? (similar-touch.has-hover ? Palette.accent : Palette.text) : Palette.muted;
+                                font-size: 13px;
+                                vertical-alignment: center;
+                            }
+
+                            similar-touch := TouchArea {
+                                clicked => {
+                                    if (item.known) {
+                                        root.open-artist(item.id, item.name);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
