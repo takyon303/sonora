@@ -1005,6 +1005,68 @@ pub fn run(db: Db, handle: Handle, data_dir: PathBuf) -> anyhow::Result<()> {
         let ctx = ctx.clone();
         let handle = handle.clone();
         let lookup = lookup.clone();
+        ui.on_lastfm_love_toggled(move |id, loved| {
+            let weak = weak.clone();
+            let ctx = ctx.clone();
+            let lookup = lookup.clone();
+            let handle_for_refresh = handle.clone();
+            handle.spawn(async move {
+                let settings = match ctx.db.load_settings().await {
+                    Ok(settings) => settings,
+                    Err(err) => {
+                        log::error!("could not read settings for Last.fm: {err}");
+                        return;
+                    }
+                };
+                let Some(client) = lastfm_client(&settings) else {
+                    set_error(&weak, "Connect Last.fm in Settings to love tracks there.");
+                    return;
+                };
+                let track = match ctx.db.track(id as TrackId).await {
+                    Ok(Some(track)) => track,
+                    Ok(None) => return,
+                    Err(err) => {
+                        log::error!("could not read a track for Last.fm: {err}");
+                        return;
+                    }
+                };
+                let query = track_query(&track);
+                let title = track.title.clone();
+                let sent = tokio::task::spawn_blocking(move || {
+                    let http = sonora_metadata::UreqHttp::new(sonora_metadata::USER_AGENT);
+                    client.set_loved(&http, &query, loved)
+                })
+                .await;
+                match sent {
+                    Ok(Ok(())) => {
+                        // The love is only recorded once Last.fm took it, so the
+                        // row never claims a state the profile does not have.
+                        if let Err(err) = ctx.db.set_loved(id as TrackId, loved).await {
+                            log::error!("could not remember a Last.fm love: {err}");
+                            return;
+                        }
+                        refresh_all(weak.clone(), ctx, handle_for_refresh, lookup);
+                        set_status(
+                            &weak,
+                            if loved {
+                                format!("Loved \"{title}\" on Last.fm.")
+                            } else {
+                                format!("Removed \"{title}\" from Last.fm loved tracks.")
+                            },
+                        );
+                    }
+                    Ok(Err(err)) => set_error(&weak, format!("Last.fm refused that: {err}")),
+                    Err(err) => log::warn!("could not reach Last.fm: {err}"),
+                }
+            });
+        });
+    }
+
+    {
+        let weak = weak.clone();
+        let ctx = ctx.clone();
+        let handle = handle.clone();
+        let lookup = lookup.clone();
         ui.on_rating_changed(move |id, current| {
             // Clicking cycles 0 → 1 → … → 5 → 0, so one control can both set
             // and clear a rating without a second button.
@@ -3887,6 +3949,7 @@ fn apply_settings(ui: &AppWindow, settings: &Settings) {
             .into(),
     );
     ui.set_settings_lastfm_status(lastfm_status(settings).into());
+    ui.set_lastfm_connected(settings.lastfm_session_key.is_some());
     ui.set_settings_lastfm_connecting(false);
     ui.set_settings_discord_presence(settings.discord_presence);
     ui.set_settings_discord_app_id(settings.discord_app_id.clone().unwrap_or_default().into());
@@ -4186,6 +4249,7 @@ fn track_rows(tracks: &[TrackView]) -> Vec<TrackRow> {
             subtitle: String::new().into(),
             duration: format_duration(track.duration_ms).into(),
             favourite: track.favourite,
+            loved: track.loved,
             rating: track.rating.clamp(0, 5) as i32,
             replay_gain: track
                 .effective_replay_gain_db()
@@ -4214,6 +4278,7 @@ fn history_rows(entries: &[HistoryEntry]) -> Vec<TrackRow> {
                 subtitle: extra.into(),
                 duration: format_duration(entry.track.duration_ms).into(),
                 favourite: entry.track.favourite,
+                loved: entry.track.loved,
                 rating: entry.track.rating.clamp(0, 5) as i32,
                 replay_gain: String::new().into(),
             }

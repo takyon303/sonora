@@ -47,6 +47,8 @@ pub enum MetadataError {
     MissingApiKey,
     #[error("Last.fm needs the shared secret that came with the API key")]
     MissingSecret,
+    #[error("Last.fm needs a connected account; connect one in Settings to love tracks there")]
+    MissingSession,
 }
 
 pub type Result<T> = std::result::Result<T, MetadataError>;

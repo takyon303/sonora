@@ -185,10 +185,15 @@ Delivered:
   rather than asked again on every visit. Names the library also carries open
   that artist; the rest stay visible as plain text, because there is nowhere
   to go.
+- Loved tracks on Last.fm, kept apart from the library's own favourites. The
+  track menu loves or un-loves a track on Last.fm and only records the love
+  once Last.fm accepted it, so a row never claims a state the profile does not
+  have; the ones it knows about carry a heart, and starring a track here and
+  loving it there never move each other.
 
 Still open:
 
-- Last.fm beyond listening history: loved tracks, charts and recommendations.
+- Last.fm beyond listening history: charts and recommendations.
 - Discord Rich Presence on Android, through the Discord Social SDK, which
   publishes presence without account linking when the Discord app is installed
   and signed in (SDK 1.10+, Android 7.0+).

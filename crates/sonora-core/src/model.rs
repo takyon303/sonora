@@ -176,6 +176,9 @@ pub struct TrackView {
     pub path: PathBuf,
     /// Has the user starred this track?
     pub favourite: bool,
+    /// Has the listener loved this track on Last.fm? That list lives on the
+    /// listener's profile; a favourite and a Last.fm love are separate things.
+    pub loved: bool,
     /// 0 means unrated; 1–5 are the stars the user chose.
     pub rating: i64,
     /// How many times playback has started on this track.

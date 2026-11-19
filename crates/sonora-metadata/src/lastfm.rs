@@ -104,6 +104,21 @@ impl LastFm {
         Ok(())
     }
 
+    /// Add this track to the listener's Last.fm loved tracks, or take it back
+    /// out. Only an artist and a title are sent: Last.fm matches those against
+    /// its own catalogue, and its loved list is nobody's business but theirs.
+    pub fn set_loved(&self, http: &dyn Http, track: &TrackQuery, loved: bool) -> Result<()> {
+        if !self.has_key() {
+            return Err(MetadataError::MissingApiKey);
+        }
+        if !self.has_session() {
+            return Err(MetadataError::MissingSession);
+        }
+        let method = if loved { "track.love" } else { "track.unlove" };
+        self.write(http, method, loved_fields(track))?;
+        Ok(())
+    }
+
     /// Sign and send one write call, returning its JSON body.
     fn write(
         &self,
@@ -243,6 +258,14 @@ fn track_fields(track: &TrackQuery) -> Vec<(&'static str, String)> {
         fields.push(("duration", (duration / 1_000).to_string()));
     }
     fields
+}
+
+/// The only fields `track.love` takes: Last.fm matches the pair itself.
+fn loved_fields(track: &TrackQuery) -> Vec<(&'static str, String)> {
+    vec![
+        ("artist", track.artist.clone()),
+        ("track", track.title.clone()),
+    ]
 }
 
 fn parse_tags(body: &[u8]) -> Result<Vec<String>> {
@@ -496,6 +519,44 @@ mod tests {
             .scrobble(&stub, &play(), 1_700_000_000)
             .unwrap_err();
         assert!(error.to_string().contains("Invalid session key"), "{error}");
+    }
+
+    #[test]
+    fn loving_a_track_is_a_signed_call_of_its_own() {
+        let stub = PostStub::replying(&["{}", "{}"]);
+        let client = credentials();
+
+        client.set_loved(&stub, &play(), true).unwrap();
+        let form = stub.last_form();
+        assert!(
+            form.starts_with(
+                "method=track.love&api_key=key123&sk=sess789&artist=Aphex%20Twin&track=Xtal"
+            ),
+            "{form}"
+        );
+        assert!(!form.contains("album="), "{form}");
+        assert!(!form.contains("duration="), "{form}");
+        assert!(form.contains("&api_sig="), "{form}");
+
+        client.set_loved(&stub, &play(), false).unwrap();
+        assert!(
+            stub.last_form().starts_with("method=track.unlove"),
+            "{}",
+            stub.last_form()
+        );
+    }
+
+    #[test]
+    fn loving_needs_an_account_to_apply_to() {
+        let stub = PostStub::replying(&["{}"]);
+        let error = LastFm::with_credentials("key123", "secret456")
+            .set_loved(&stub, &play(), true)
+            .unwrap_err();
+        assert!(matches!(error, MetadataError::MissingSession), "{error}");
+        assert!(
+            stub.sent.lock().unwrap().is_empty(),
+            "nothing was sent without a session"
+        );
     }
 
     #[test]

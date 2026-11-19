@@ -83,6 +83,7 @@ sonora is under active development. the project is being built in phases, and no
 - Last.fm scrobbling: a play counts under Last.fm's listening rules (half the track or four minutes, never under thirty seconds), is queued in the library and sent when the network allows, and the sign-in is a single browser approval.
 - Discord Rich Presence on desktop, showing the track and `sonora pre-release` while something is playing and hiding itself on pause. Off by default.
 - Similar artists on artist profiles, fetched once and kept offline.
+- Last.fm loved tracks from a track's menu, kept apart from the library's favourites: loving a track there never stars it here, and starring it here never loves it there.
 
 **interface & settings**
 - Slint desktop interface with Discover/Home, Tracks, Playlists, Albums, Artists and Settings.
@@ -106,7 +107,7 @@ sonora is under active development. the project is being built in phases, and no
 
 the following are either partially implemented or waiting for their respective development phase:
 
-- Last.fm beyond scrobbling: loved tracks, charts and recommendations.
+- Last.fm charts and recommendations.
 - Discord Rich Presence on Android, through the Discord Social SDK.
 - SMTC media controls on Windows, and the Android media session.
 - The artwork candidate review screen before a change is applied.

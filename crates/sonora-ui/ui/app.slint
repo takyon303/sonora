@@ -354,6 +354,9 @@ export struct TrackRow {
     subtitle: string,
     duration: string,
     favourite: bool,
+    // Loved on Last.fm, which is the listener's profile list and not this
+    // library's star. The two are deliberately different flags.
+    loved: bool,
     rating: int,
     replay_gain: string,
 }
@@ -727,7 +730,7 @@ component TrackRowItem inherits Rectangle {
                 title-text := Text {
                     x: 0px;
                     y: 0px;
-                    width: parent.width;
+                    width: parent.width - (root.track.loved ? 16px : 0px);
                     height: parent.height;
                     text: root.track.title;
                     color: root.track.album-id > 0 && title-touch.has-hover ? Palette.accent : Palette.text;
@@ -751,6 +754,20 @@ component TrackRowItem inherits Rectangle {
                             }
                         }
                     }
+                }
+
+                // A Last.fm love keeps its own mark: the star belongs to the
+                // library, so the heart is the only thing that means Last.fm.
+                if root.track.loved: Text {
+                    x: parent.width - 14px;
+                    y: 0px;
+                    width: 14px;
+                    height: parent.height;
+                    text: "♥";
+                    color: Palette.muted;
+                    font-size: 12px;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
                 }
             }
 
@@ -1831,6 +1848,9 @@ component TrackMenuDrawer inherits Rectangle {
     in property <bool> show-remove: false;
     in property <bool> show-add: true;
     in property <bool> playback-available: true;
+    // Loving a track only makes sense with a connected Last.fm account, so the
+    // row is absent rather than failing when it is pressed.
+    in property <bool> lastfm-love: false;
 
     // The sheet paints its own surface: a translucent sheet over the page let
     // the library rows show through the labels. The blurred cover keeps the
@@ -1846,6 +1866,7 @@ component TrackMenuDrawer inherits Rectangle {
     callback action-enqueue();
     callback action-playlist();
     callback action-favourite(bool);
+    callback action-love(bool);
     callback action-rating(int);
     callback action-metadata();
     callback action-remove();
@@ -1959,6 +1980,16 @@ component TrackMenuDrawer inherits Rectangle {
             label: root.track.favourite ? "Remove from favourites" : "Add to favourites";
             clicked => {
                 root.action-favourite(!root.track.favourite);
+            }
+        }
+
+        // Last.fm's loved tracks are a public list on the listener's profile;
+        // the favourites row above is the library's private star. They are
+        // separate controls on purpose, and neither changes the other.
+        if root.lastfm-love: MenuRow {
+            label: root.track.loved ? "Remove from Last.fm loved tracks" : "Love on Last.fm";
+            clicked => {
+                root.action-love(!root.track.loved);
             }
         }
 
@@ -2742,6 +2773,9 @@ export component AppWindow inherits Window {
     // context opened it (removal only makes sense in a playlist, add only
     // where the list allows hand edits).
     in-out property <TrackRow> menu-track;
+    // Whether a Last.fm account is connected, which decides if loving a track
+    // is something the menu can offer.
+    in-out property <bool> lastfm-connected: false;
     in-out property <bool> menu-open: false;
     in-out property <bool> menu-show-remove: false;
     in-out property <bool> menu-show-add: true;
@@ -2775,6 +2809,7 @@ export component AppWindow inherits Window {
     callback play-next-requested(int);
     callback enqueue-requested(int);
     callback favourite-toggled(int, bool);
+    callback lastfm-love-toggled(int, bool);
     callback rating-changed(int, int);
     callback toggle-playback();
     callback previous-track();
@@ -4761,10 +4796,12 @@ export component AppWindow inherits Window {
             show-remove: root.menu-show-remove;
             show-add: root.menu-show-add;
             playback-available: RowArtwork.playback-available;
+            lastfm-love: root.lastfm-connected;
             action-play-next => { root.play-next-requested(root.menu-track.id); root.menu-open = false; }
             action-enqueue => { root.enqueue-requested(root.menu-track.id); root.menu-open = false; }
             action-playlist => { root.open-playlist-picker(root.menu-track.id, root.menu-track.title); root.menu-open = false; }
             action-favourite(liked) => { root.favourite-toggled(root.menu-track.id, liked); root.menu-open = false; }
+            action-love(loved) => { root.lastfm-love-toggled(root.menu-track.id, loved); root.menu-open = false; }
             action-rating(value) => { root.rating-changed(root.menu-track.id, value); root.menu-open = false; }
             action-metadata => { root.metadata-edit-requested(root.menu-track.id); root.menu-open = false; }
             action-remove => { root.playlist-track-remove(root.menu-track.id); root.menu-open = false; }

@@ -530,6 +530,7 @@ mod tests {
             added_at: 0,
             path: PathBuf::from("/library/x.flac"),
             favourite: false,
+            loved: false,
             rating: 0,
             play_count: 0,
             replay_gain_track_db: None,

@@ -48,7 +48,8 @@ const TRACK_COLUMNS: &str = "
     t.replay_gain_track_peak, t.replay_gain_album_peak,
     COALESCE(act.favourite, 0) AS favourite,
     COALESCE(act.rating, 0) AS rating,
-    COALESCE(act.play_count, 0) AS play_count
+    COALESCE(act.play_count, 0) AS play_count,
+    (SELECT loved_at FROM track_love WHERE track_id = t.id) AS loved_at
 ";
 
 const ALBUM_COLUMNS: &str = "
@@ -1029,6 +1030,30 @@ impl Db {
         Ok(())
     }
 
+    /// Remember that Last.fm accepted a love, or that its removal went
+    /// through. Last.fm's loved tracks are the listener's profile list, not the
+    /// library's star, so this never touches `track_activity`.
+    pub async fn set_loved(&self, track: TrackId, loved: bool) -> Result<()> {
+        if loved {
+            sqlx::query(
+                "INSERT INTO track_love (track_id, loved_at) VALUES (?1, ?2)
+                 ON CONFLICT (track_id) DO UPDATE SET loved_at = excluded.loved_at",
+            )
+            .bind(track)
+            .bind(now())
+            .execute(&self.pool)
+            .await
+            .db()?;
+        } else {
+            sqlx::query("DELETE FROM track_love WHERE track_id = ?1")
+                .bind(track)
+                .execute(&self.pool)
+                .await
+                .db()?;
+        }
+        Ok(())
+    }
+
     /// Recent plays, newest first. Each row carries the track as it looks now,
     /// so editing a tag updates every historical entry too.
     pub async fn history(&self, limit: i64, offset: i64) -> Result<Vec<HistoryEntry>> {
@@ -1733,6 +1758,10 @@ fn map_track(row: &SqliteRow) -> TrackView {
         favourite: row.get::<i64, _>("favourite") != 0,
         rating: row.get("rating"),
         play_count: row.get("play_count"),
+        loved: row
+            .try_get::<Option<i64>, _>("loved_at")
+            .unwrap_or(None)
+            .is_some(),
         replay_gain_track_db: row
             .try_get::<Option<f64>, _>("replay_gain_track_db")
             .unwrap_or(None),
@@ -3022,6 +3051,40 @@ mod tests {
         // Unstarring removes the row from the favourites view.
         db.set_favourite(first, false).await.unwrap();
         assert!(db.favourites(10).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn lastfm_loves_stay_apart_from_favourites() {
+        let db = Db::open_in_memory().await.unwrap();
+        let (first, second) = seed_two_tracks(&db).await;
+
+        db.set_loved(first, true).await.unwrap();
+        let loved = db.track(first).await.unwrap().unwrap();
+        assert!(loved.loved);
+        assert!(!loved.favourite, "loving on Last.fm must not star a track");
+        assert!(db.favourites(10).await.unwrap().is_empty());
+
+        // And starring one here says nothing about Last.fm.
+        db.set_favourite(second, true).await.unwrap();
+        let starred = db.track(second).await.unwrap().unwrap();
+        assert!(starred.favourite);
+        assert!(!starred.loved);
+
+        db.set_loved(first, false).await.unwrap();
+        assert!(!db.track(first).await.unwrap().unwrap().loved);
+
+        // Losing the track loses its love with it.
+        db.set_loved(first, true).await.unwrap();
+        sqlx::query("DELETE FROM tracks WHERE id = ?1")
+            .bind(first)
+            .execute(db.pool())
+            .await
+            .unwrap();
+        let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM track_love")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+        assert_eq!(left, 0);
     }
 
     #[tokio::test]
